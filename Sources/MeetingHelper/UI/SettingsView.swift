@@ -235,6 +235,30 @@ struct SettingsView: View {
                 Text(calendarAccountSummary)
                     .multilineTextAlignment(.trailing)
             }
+            if controller.calendar.availableCalendars.isEmpty {
+                Text("No calendars found.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Use events from")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(controller.calendar.availableCalendars) { calendar in
+                    Toggle(isOn: calendarSelectionBinding(for: calendar.id)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(calendar.title)
+                            Text(calendar.accountTitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if enabledCalendarCount == 0 {
+                    Text("No calendar events will be used for meeting names or participants.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
             Button("Add or remove accounts…") { CalendarService.openAccountSettings() }
         case .denied:
             LabeledContent("Access") {
@@ -257,6 +281,27 @@ struct SettingsView: View {
     private var calendarAccountSummary: String {
         let titles = controller.calendar.accountTitles
         return titles.isEmpty ? "None with calendars" : titles.joined(separator: ", ")
+    }
+
+    private var enabledCalendarCount: Int {
+        controller.calendar.availableCalendars.count { calendar in
+            !controller.settings.excludedCalendarIDs.contains(calendar.id)
+        }
+    }
+
+    private func calendarSelectionBinding(for calendarID: String) -> Binding<Bool> {
+        Binding(
+            get: { !controller.settings.excludedCalendarIDs.contains(calendarID) },
+            set: { isEnabled in
+                var excluded = controller.settings.excludedCalendarIDs
+                if isEnabled {
+                    excluded.remove(calendarID)
+                } else {
+                    excluded.insert(calendarID)
+                }
+                controller.settings.excludedCalendarIDs = excluded
+            }
+        )
     }
 
     @ViewBuilder

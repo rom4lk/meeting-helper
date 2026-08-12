@@ -3,6 +3,12 @@ import XCTest
 
 final class CalendarModelsTests: XCTestCase {
 
+    func testCalendarSelectionIncludesCalendarsUnlessTheyAreExcluded() {
+        XCTAssertTrue(CalendarSelection.includes("work", excluding: []))
+        XCTAssertFalse(CalendarSelection.includes("work", excluding: ["work"]))
+        XCTAssertTrue(CalendarSelection.includes("personal", excluding: ["work"]))
+    }
+
     // MARK: - Attendee names
 
     func testUsesTheDisplayNameWhenTheCalendarKnowsOne() {

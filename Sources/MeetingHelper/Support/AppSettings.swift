@@ -108,6 +108,9 @@ final class AppSettings: ObservableObject {
             defaults.set(excludedMicrophoneAppBundleIDs.sorted(), forKey: Keys.excludedMicrophoneApps)
         }
     }
+    @Published var excludedCalendarIDs: Set<String> {
+        didSet { defaults.set(excludedCalendarIDs.sorted(), forKey: Keys.excludedCalendars) }
+    }
     @Published private(set) var observedMicrophoneApplications: [String: String] {
         didSet {
             defaults.set(observedMicrophoneApplications, forKey: Keys.observedMicrophoneApplications)
@@ -144,6 +147,7 @@ final class AppSettings: ObservableObject {
         static let detectionMode = "detectionMode"
         static let selectedMicrophoneApps = "selectedMicrophoneAppBundleIDs"
         static let excludedMicrophoneApps = "excludedMicrophoneAppBundleIDs"
+        static let excludedCalendars = "excludedCalendarIDs"
         static let observedMicrophoneApplications = "observedMicrophoneApplications"
         static let liveTranscript = "liveTranscriptEnabled"
         static let liveTranscriptShowsMySpeech = "liveTranscriptShowsMySpeech"
@@ -180,6 +184,7 @@ final class AppSettings: ObservableObject {
         ) ?? .recognizedMeetings
         selectedMicrophoneAppBundleIDs = Set(defaults.stringArray(forKey: Keys.selectedMicrophoneApps) ?? [])
         excludedMicrophoneAppBundleIDs = Set(defaults.stringArray(forKey: Keys.excludedMicrophoneApps) ?? [])
+        excludedCalendarIDs = Set(defaults.stringArray(forKey: Keys.excludedCalendars) ?? [])
         observedMicrophoneApplications = defaults.dictionary(forKey: Keys.observedMicrophoneApplications)
             as? [String: String] ?? [:]
         liveTranscriptEnabled = defaults.bool(forKey: Keys.liveTranscript)

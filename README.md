@@ -134,10 +134,12 @@ already syncs, so both the work account and the personal one are added the ordin
 1. Open **System Settings > Internet Accounts**, add each Google account, and turn **Calendars** on
    for it. Accounts already added for Mail or Contacts only need the Calendars switch.
 2. In Meeting Helper, open **Settings > Calendar** and press **Connect Calendar**. macOS asks for
-   permission; the accounts it found are listed once it is granted.
+   permission; the accounts and calendars it found are listed once it is granted.
 
-Every calendar of every account is read, in a window from one hour back to three hours ahead of the
-recording. If access was refused earlier, macOS will not ask again — the same section links to
+Every calendar is enabled by default. Turn off calendars whose events Meeting Helper should ignore;
+the selection is kept between launches, and a newly discovered calendar starts enabled. Events from
+the enabled calendars are read in a window from one hour back to three hours ahead of the recording.
+If access was refused earlier, macOS will not ask again — the same section links to
 **Privacy & Security > Calendars**, where it can be turned back on.
 
 To check the installation, start a manual recording with **Option-Command-R**, speak into the

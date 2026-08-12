@@ -13,7 +13,21 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.detectionMode, .recognizedMeetings)
         XCTAssertTrue(settings.selectedMicrophoneAppBundleIDs.isEmpty)
         XCTAssertTrue(settings.excludedMicrophoneAppBundleIDs.isEmpty)
+        XCTAssertTrue(settings.excludedCalendarIDs.isEmpty)
         XCTAssertTrue(settings.observedMicrophoneApplications.isEmpty)
+    }
+
+    func testExcludedCalendarsPersist() {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = AppSettings(defaults: defaults)
+        settings.excludedCalendarIDs = ["calendar.work", "calendar.personal"]
+
+        let restored = AppSettings(defaults: defaults)
+
+        XCTAssertEqual(restored.excludedCalendarIDs, ["calendar.work", "calendar.personal"])
     }
 
     func testMicrophoneDetectionSettingsPersist() {

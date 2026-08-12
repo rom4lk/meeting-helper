@@ -309,10 +309,12 @@ makes an account added a moment ago visible.
 
 ### Reading events
 
-Every calendar the account offers is read, over a window from one hour back to three hours ahead of
-the moment the recording starts. EventKit reads a local database, so this is a plain query at the
-moment it is needed rather than a cache kept warm in the background: there is no round trip worth
-avoiding, and therefore no window that can go stale.
+Every calendar the account offers is enabled by default. Settings stores the EventKit identifiers
+of calendars the user disables, so newly discovered calendars remain enabled without rewriting the
+preference. Only enabled calendars are queried, over a window from one hour back to three hours
+ahead of the moment the recording starts. EventKit reads a local database, so this is a plain query
+at the moment it is needed rather than a cache kept warm in the background: there is no round trip
+worth avoiding, and therefore no window that can go stale.
 
 All-day entries and cancelled events are dropped. An all-day entry spans every meeting of the day,
 so keeping them would put a birthday reminder in front of the real event. A participant EventKit

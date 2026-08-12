@@ -468,7 +468,10 @@ final class AppController: ObservableObject {
     /// Names the recording after the calendar event it belongs to and keeps that event's attendee
     /// list with it.
     private func applyCalendarMatch(for meeting: DetectedMeeting, to session: RecordingSession) {
-        guard let match = calendar.bestMatch(for: meeting) else { return }
+        guard let match = calendar.bestMatch(
+            for: meeting,
+            excludingCalendarIDs: settings.excludedCalendarIDs
+        ) else { return }
         session.apply(match)
     }
 
