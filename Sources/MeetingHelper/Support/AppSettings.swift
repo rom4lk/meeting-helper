@@ -1,5 +1,12 @@
 import Foundation
 
+struct MicrophoneApplication: Identifiable, Equatable {
+    let bundleID: String
+    let displayName: String
+
+    var id: String { bundleID }
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     enum DetectionMode: String, CaseIterable, Identifiable {
@@ -101,6 +108,11 @@ final class AppSettings: ObservableObject {
             defaults.set(excludedMicrophoneAppBundleIDs.sorted(), forKey: Keys.excludedMicrophoneApps)
         }
     }
+    @Published private(set) var observedMicrophoneApplications: [String: String] {
+        didSet {
+            defaults.set(observedMicrophoneApplications, forKey: Keys.observedMicrophoneApplications)
+        }
+    }
     @Published var liveTranscriptEnabled: Bool { didSet { defaults.set(liveTranscriptEnabled, forKey: Keys.liveTranscript) } }
     /// Whether the live views show the microphone track. Off hides those lines while a recording
     /// runs; the transcript is still recognized and saved in full.
@@ -132,6 +144,7 @@ final class AppSettings: ObservableObject {
         static let detectionMode = "detectionMode"
         static let selectedMicrophoneApps = "selectedMicrophoneAppBundleIDs"
         static let excludedMicrophoneApps = "excludedMicrophoneAppBundleIDs"
+        static let observedMicrophoneApplications = "observedMicrophoneApplications"
         static let liveTranscript = "liveTranscriptEnabled"
         static let liveTranscriptShowsMySpeech = "liveTranscriptShowsMySpeech"
         static let realtimeTranscript = "realtimeTranscriptEnabled"
@@ -167,6 +180,8 @@ final class AppSettings: ObservableObject {
         ) ?? .recognizedMeetings
         selectedMicrophoneAppBundleIDs = Set(defaults.stringArray(forKey: Keys.selectedMicrophoneApps) ?? [])
         excludedMicrophoneAppBundleIDs = Set(defaults.stringArray(forKey: Keys.excludedMicrophoneApps) ?? [])
+        observedMicrophoneApplications = defaults.dictionary(forKey: Keys.observedMicrophoneApplications)
+            as? [String: String] ?? [:]
         liveTranscriptEnabled = defaults.bool(forKey: Keys.liveTranscript)
         liveTranscriptShowsMySpeech = defaults.bool(forKey: Keys.liveTranscriptShowsMySpeech)
         realtimeTranscriptEnabled = defaults.bool(forKey: Keys.realtimeTranscript)
@@ -209,6 +224,15 @@ final class AppSettings: ObservableObject {
 
     static func displayName(forModel model: String) -> String {
         availableModels.first { $0.id == model }?.shortName ?? model
+    }
+
+    func rememberMicrophoneApplications(_ applications: [MicrophoneApplication]) {
+        var updated = observedMicrophoneApplications
+        for application in applications {
+            updated[application.bundleID] = application.displayName
+        }
+        guard updated != observedMicrophoneApplications else { return }
+        observedMicrophoneApplications = updated
     }
 
     func setICloudSyncFolderURL(_ url: URL?) throws {

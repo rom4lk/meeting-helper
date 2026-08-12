@@ -13,6 +13,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.detectionMode, .recognizedMeetings)
         XCTAssertTrue(settings.selectedMicrophoneAppBundleIDs.isEmpty)
         XCTAssertTrue(settings.excludedMicrophoneAppBundleIDs.isEmpty)
+        XCTAssertTrue(settings.observedMicrophoneApplications.isEmpty)
     }
 
     func testMicrophoneDetectionSettingsPersist() {
@@ -24,12 +25,38 @@ final class AppSettingsTests: XCTestCase {
         settings.detectionMode = .anyMicrophoneApp
         settings.selectedMicrophoneAppBundleIDs = ["com.example.selected"]
         settings.excludedMicrophoneAppBundleIDs = ["com.example.excluded"]
+        settings.rememberMicrophoneApplications([
+            MicrophoneApplication(bundleID: "com.example.calls", displayName: "Example Calls")
+        ])
 
         let restored = AppSettings(defaults: defaults)
 
         XCTAssertEqual(restored.detectionMode, .anyMicrophoneApp)
         XCTAssertEqual(restored.selectedMicrophoneAppBundleIDs, ["com.example.selected"])
         XCTAssertEqual(restored.excludedMicrophoneAppBundleIDs, ["com.example.excluded"])
+        XCTAssertEqual(
+            restored.observedMicrophoneApplications,
+            ["com.example.calls": "Example Calls"]
+        )
+    }
+
+    func testRememberingMicrophoneApplicationUpdatesItsDisplayName() {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = AppSettings(defaults: defaults)
+        settings.rememberMicrophoneApplications([
+            MicrophoneApplication(bundleID: "com.example.calls", displayName: "Calls")
+        ])
+        settings.rememberMicrophoneApplications([
+            MicrophoneApplication(bundleID: "com.example.calls", displayName: "Example Calls")
+        ])
+
+        XCTAssertEqual(
+            settings.observedMicrophoneApplications,
+            ["com.example.calls": "Example Calls"]
+        )
     }
 
     func testUnknownDetectionModeFallsBackToRecognizedMeetings() {

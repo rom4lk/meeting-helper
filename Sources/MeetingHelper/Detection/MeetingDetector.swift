@@ -230,6 +230,7 @@ final class MeetingDetector: ObservableObject {
 
     var onStart: ((DetectedMeeting) -> Void)?
     var onStop: (() -> Void)?
+    var onMicrophoneApplicationsObserved: (([MicrophoneApplication]) -> Void)?
 
     private var pollTimer: Timer?
     private var browserPositiveTicks = 0
@@ -299,12 +300,13 @@ final class MeetingDetector: ObservableObject {
             microphoneActivity.reset()
             return
         }
+
+        let activeApps = activeMicrophoneApps()
         guard current == nil || current?.kind == .microphoneApp else {
             microphoneActivity.reset()
             return
         }
 
-        let activeApps = activeMicrophoneApps()
         let appsByBundleID = Dictionary(uniqueKeysWithValues: activeApps.map { ($0.bundleID, $0) })
         let transition = microphoneActivity.update(activeBundleIDs: Set(appsByBundleID.keys))
 
@@ -333,6 +335,7 @@ final class MeetingDetector: ObservableObject {
     private func activeMicrophoneApps() -> [ActiveMicrophoneApp] {
         let ownBundleID = Bundle.main.bundleIdentifier ?? "com.kovalev.MeetingHelper"
         var appsByBundleID: [String: ActiveMicrophoneApp] = [:]
+        var observedAppsByBundleID: [String: MicrophoneApplication] = [:]
 
         for match in AudioProcessLookup.activeInputMatches() {
             guard !AudioProcessLookup.bundleID(match.bundleID, belongsTo: ownBundleID) else { continue }
@@ -341,6 +344,12 @@ final class MeetingDetector: ObservableObject {
             if let resolved,
                AudioProcessLookup.bundleID(resolved.bundleID, belongsTo: ownBundleID) {
                 continue
+            }
+            if let resolved {
+                observedAppsByBundleID[resolved.bundleID] = MicrophoneApplication(
+                    bundleID: resolved.bundleID,
+                    displayName: resolved.displayName
+                )
             }
 
             let app: ActiveMicrophoneApp
@@ -384,6 +393,9 @@ final class MeetingDetector: ObservableObject {
             }
         }
 
+        if !observedAppsByBundleID.isEmpty {
+            onMicrophoneApplicationsObserved?(Array(observedAppsByBundleID.values))
+        }
         return Array(appsByBundleID.values)
     }
 

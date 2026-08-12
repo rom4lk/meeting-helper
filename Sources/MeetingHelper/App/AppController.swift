@@ -98,6 +98,9 @@ final class AppController: ObservableObject {
         detector.onStop = { [weak self] in
             self?.stopRecording(manually: false)
         }
+        detector.onMicrophoneApplicationsObserved = { [weak self] applications in
+            self?.settings.rememberMicrophoneApplications(applications)
+        }
         syncDetectionSettings()
         detector.autoDetectionEnabled = settings.autoDetectionEnabled
 
@@ -179,18 +182,28 @@ final class AppController: ObservableObject {
 
     func chooseSelectedMicrophoneApplications() {
         chooseApplications { [weak self] bundleIDs in
-            guard let self else { return }
-            settings.selectedMicrophoneAppBundleIDs.formUnion(bundleIDs)
-            syncDetectionSettings()
+            for bundleID in bundleIDs {
+                self?.addSelectedMicrophoneApplication(bundleID: bundleID)
+            }
         }
     }
 
     func chooseExcludedMicrophoneApplications() {
         chooseApplications { [weak self] bundleIDs in
-            guard let self else { return }
-            settings.excludedMicrophoneAppBundleIDs.formUnion(bundleIDs)
-            syncDetectionSettings()
+            for bundleID in bundleIDs {
+                self?.addExcludedMicrophoneApplication(bundleID: bundleID)
+            }
         }
+    }
+
+    func addSelectedMicrophoneApplication(bundleID: String) {
+        settings.selectedMicrophoneAppBundleIDs.insert(bundleID)
+        syncDetectionSettings()
+    }
+
+    func addExcludedMicrophoneApplication(bundleID: String) {
+        settings.excludedMicrophoneAppBundleIDs.insert(bundleID)
+        syncDetectionSettings()
     }
 
     func removeSelectedMicrophoneApplication(bundleID: String) {
@@ -206,7 +219,7 @@ final class AppController: ObservableObject {
     func applicationDisplayName(forBundleID bundleID: String) -> String {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
               let bundle = Bundle(url: url)
-        else { return bundleID }
+        else { return settings.observedMicrophoneApplications[bundleID] ?? bundleID }
 
         return (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
             ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)

@@ -44,6 +44,7 @@ struct SettingsView: View {
                         emptyText: "No applications selected. Recognized Zoom, Google Meet, and Ktalk meetings are still detected.",
                         addLabel: "Add Applications…",
                         addAction: controller.chooseSelectedMicrophoneApplications,
+                        addObservedAction: controller.addSelectedMicrophoneApplication,
                         removeAction: controller.removeSelectedMicrophoneApplication
                     )
                     Text("Recording starts after a selected application uses the microphone continuously for two checks and stops after three checks without microphone activity.")
@@ -55,6 +56,7 @@ struct SettingsView: View {
                         emptyText: "No applications excluded.",
                         addLabel: "Exclude Applications…",
                         addAction: controller.chooseExcludedMicrophoneApplications,
+                        addObservedAction: controller.addExcludedMicrophoneApplication,
                         removeAction: controller.removeExcludedMicrophoneApplication
                     )
                     Text("Any application using the microphone can start a recording unless it is excluded. This can include dictation, voice messages, and microphone tests.")
@@ -263,6 +265,7 @@ struct SettingsView: View {
         emptyText: String,
         addLabel: String,
         addAction: @escaping () -> Void,
+        addObservedAction: @escaping (String) -> Void,
         removeAction: @escaping (String) -> Void
     ) -> some View {
         if bundleIDs.isEmpty {
@@ -286,7 +289,29 @@ struct SettingsView: View {
             }
         }
 
-        Button(addLabel, action: addAction)
+        let availableObservedApplications = controller.settings.observedMicrophoneApplications
+            .map { MicrophoneApplication(bundleID: $0.key, displayName: $0.value) }
+            .filter { !bundleIDs.contains($0.bundleID) }
+            .sorted { left, right in
+                left.displayName.localizedCaseInsensitiveCompare(right.displayName) == .orderedAscending
+            }
+
+        Menu(addLabel) {
+            if availableObservedApplications.isEmpty {
+                Text("No observed applications")
+            } else {
+                Section("Previously used the microphone") {
+                    ForEach(availableObservedApplications) { application in
+                        Button(application.displayName) {
+                            addObservedAction(application.bundleID)
+                        }
+                    }
+                }
+            }
+
+            Divider()
+            Button("Choose from Applications…", action: addAction)
+        }
             .disabled(controller.isRecording)
     }
 

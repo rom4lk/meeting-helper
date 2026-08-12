@@ -7,7 +7,8 @@ and stop recording automatically, and keep a live transcript visible while you w
 
 - Automatic meeting detection for Zoom, and for Google Meet and Ktalk in Chrome, Arc, Edge, and
   Safari. Optional modes can also start recording when selected applications, or any application
-  except an exclusion list, use the microphone.
+  except an exclusion list, use the microphone. These modes remember applications that have used
+  the microphone so they can be selected or excluded without browsing the Applications folder.
 - Separate microphone and meeting-audio tracks, labelled as "Me" and "Others" in the transcript.
 - On-device transcription with WhisperKit or multilingual Parakeet TDT v3.
 - An optional always-on-top transcript panel with real-time preview updates.

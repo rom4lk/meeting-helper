@@ -33,7 +33,10 @@ Zoom and browser signals above. **Selected apps using the microphone** also star
 one of the chosen application bundle ID families has an active input stream. **Any app using the
 microphone** accepts every identifiable application except the configured exclusions. The app
 process is always excluded because Meeting Helper itself opens the microphone after recording
-starts.
+starts. Both general modes persist the bundle ID and latest display name of every identifiable
+application observed with an active input stream, including applications that are not selected or
+are currently excluded. The add and exclude menus offer this history alongside the full
+Applications folder picker.
 
 General microphone activity must remain present for two consecutive two-second polls before a
 recording starts. The same application must then be absent for three consecutive polls before it
