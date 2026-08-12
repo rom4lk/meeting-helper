@@ -142,6 +142,29 @@ struct SettingsView: View {
                 ))
                 .disabled(!controller.settings.liveTranscriptEnabled)
 
+                Toggle("Tell the other participants apart", isOn: Binding(
+                    get: { controller.settings.speakerAttributionEnabled },
+                    set: { controller.settings.speakerAttributionEnabled = $0 }
+                ))
+                .disabled(!controller.settings.liveTranscriptEnabled)
+
+                Text("Groups the system audio by voice, so each line says who spoke rather than just \"Others\". A meeting with one other person on the invitation names that voice on its own; anywhere else the voices start as \"Speaker 1\", \"Speaker 2\" and are named from the recording window. Downloads two small models the first time and takes effect when the next recording starts.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if !controller.speakerProfiles.profiles.isEmpty {
+                    LabeledContent("Known voices") {
+                        HStack(spacing: 8) {
+                            Text(knownVoicesSummary)
+                            Button("Forget all") { controller.speakerProfiles.removeAll() }
+                        }
+                    }
+
+                    Text("Naming a voice during a recording stores it locally so the same person is recognized at their next meeting. These recordings of a voice never leave this Mac and are not part of the iCloud sync.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Toggle("Filter out speaker leakage before recognition", isOn: Binding(
                     get: { controller.settings.echoGateEnabled },
                     set: { controller.settings.echoGateEnabled = $0 }
@@ -281,6 +304,11 @@ struct SettingsView: View {
     private var calendarAccountSummary: String {
         let titles = controller.calendar.accountTitles
         return titles.isEmpty ? "None with calendars" : titles.joined(separator: ", ")
+    }
+
+    private var knownVoicesSummary: String {
+        let count = controller.speakerProfiles.profiles.count
+        return count == 1 ? "1 person" : "\(count) people"
     }
 
     private var enabledCalendarCount: Int {

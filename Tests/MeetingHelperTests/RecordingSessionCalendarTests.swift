@@ -13,7 +13,8 @@ final class RecordingSessionCalendarTests: XCTestCase {
                 detectedAt: Date()
             ),
             settings: AppSettings(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-            engine: TranscriptionEngine()
+            engine: TranscriptionEngine(),
+            profileStore: SpeakerProfileStore(url: .temporaryProfileStore())
         )
     }
 

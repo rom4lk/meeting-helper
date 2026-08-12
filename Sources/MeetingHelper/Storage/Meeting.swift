@@ -15,6 +15,9 @@ struct Meeting: Identifiable, Codable, Hashable {
     /// most manual recordings have none and because meetings recorded before calendar support
     /// exists must keep decoding.
     var calendar: MeetingCalendarInfo?
+    /// The distinct voices heard on the "Others" track, and what each is called. `nil` when speaker
+    /// attribution was off, and for meetings recorded before it existed.
+    var speakers: [MeetingSpeaker]?
     /// The recordings this meeting was merged from, in the order they were joined. `nil` for an
     /// ordinary recording, and for meetings saved before merging existed.
     var mergedSegments: [MergedMeetingSegment]?
@@ -29,6 +32,7 @@ struct Meeting: Identifiable, Codable, Hashable {
         hasSystemTrack: Bool = false,
         transcriptionModel: String? = nil,
         calendar: MeetingCalendarInfo? = nil,
+        speakers: [MeetingSpeaker]? = nil,
         mergedSegments: [MergedMeetingSegment]? = nil
     ) {
         self.id = id
@@ -40,6 +44,7 @@ struct Meeting: Identifiable, Codable, Hashable {
         self.hasSystemTrack = hasSystemTrack
         self.transcriptionModel = transcriptionModel
         self.calendar = calendar
+        self.speakers = speakers
         self.mergedSegments = mergedSegments
     }
 

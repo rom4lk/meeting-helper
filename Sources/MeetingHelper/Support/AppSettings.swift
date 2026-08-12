@@ -129,6 +129,11 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(transcriptDeduplicationEnabled, forKey: Keys.transcriptDeduplication) }
     }
     @Published var echoGateEnabled: Bool { didSet { defaults.set(echoGateEnabled, forKey: Keys.echoGate) } }
+    /// Whether the live transcript tells the voices on the system track apart. Costs two more
+    /// on-device models and a speaker embedding per recognized phrase.
+    @Published var speakerAttributionEnabled: Bool {
+        didSet { defaults.set(speakerAttributionEnabled, forKey: Keys.speakerAttribution) }
+    }
     @Published var showPanelOnStart: Bool { didSet { defaults.set(showPanelOnStart, forKey: Keys.showPanel) } }
     @Published var minimumRecordingDuration: Int {
         didSet { defaults.set(minimumRecordingDuration, forKey: Keys.minimumRecordingDuration) }
@@ -154,6 +159,7 @@ final class AppSettings: ObservableObject {
         static let realtimeTranscript = "realtimeTranscriptEnabled"
         static let transcriptDeduplication = "transcriptDeduplicationEnabled"
         static let echoGate = "echoGateEnabled"
+        static let speakerAttribution = "speakerAttributionEnabled"
         static let showPanel = "showPanelOnStart"
         static let minimumRecordingDuration = "minimumRecordingDuration"
         static let iCloudSyncLimit = "iCloudSyncLimit"
@@ -171,6 +177,7 @@ final class AppSettings: ObservableObject {
             Keys.realtimeTranscript: false,
             Keys.transcriptDeduplication: true,
             Keys.echoGate: true,
+            Keys.speakerAttribution: true,
             Keys.showPanel: true,
             Keys.minimumRecordingDuration: 10,
             Keys.iCloudSyncLimit: ICloudSyncLimit.disabled.rawValue,
@@ -192,6 +199,7 @@ final class AppSettings: ObservableObject {
         realtimeTranscriptEnabled = defaults.bool(forKey: Keys.realtimeTranscript)
         transcriptDeduplicationEnabled = defaults.bool(forKey: Keys.transcriptDeduplication)
         echoGateEnabled = defaults.bool(forKey: Keys.echoGate)
+        speakerAttributionEnabled = defaults.bool(forKey: Keys.speakerAttribution)
         showPanelOnStart = defaults.bool(forKey: Keys.showPanel)
         let storedMinimumDuration = defaults.integer(forKey: Keys.minimumRecordingDuration)
         let minimumDuration = Self.minimumRecordingDurations.contains(storedMinimumDuration)

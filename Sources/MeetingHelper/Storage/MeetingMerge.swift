@@ -121,6 +121,7 @@ enum MeetingMerge {
             hasSystemTrack: segments.contains { $0.systemURL != nil },
             transcriptionModel: combinedTranscriptionModel(of: ordered),
             calendar: ordered.compactMap(\.calendar).first,
+            speakers: mergedSpeakers(of: segments),
             mergedSegments: provenance(of: segments)
         )
 
@@ -142,11 +143,34 @@ enum MeetingMerge {
                         id: line.id,
                         source: line.source,
                         offset: segment.offset + offset,
-                        text: line.text
+                        text: line.text,
+                        speakerID: line.speakerID.map { speakerID($0, in: segment.meeting) }
                     )
                 }
             }
             .sorted { $0.offset < $1.offset }
+    }
+
+    /// Voices are numbered from one inside each recording, so the same id in two of them stands for
+    /// two different people. Qualifying every id with the recording it came from keeps them apart.
+    /// Collapsing them instead would claim a resemblance nothing has measured.
+    private static func speakerID(_ id: String, in meeting: Meeting) -> String {
+        "\(meeting.id.uuidString):\(id)"
+    }
+
+    private static func mergedSpeakers(of segments: [PlannedSegment]) -> [MeetingSpeaker]? {
+        var merged: [MeetingSpeaker] = []
+        for segment in segments {
+            for speaker in segment.meeting.speakers ?? [] {
+                merged.append(MeetingSpeaker(
+                    id: speakerID(speaker.id, in: segment.meeting),
+                    ordinal: merged.count + 1,
+                    name: speaker.name,
+                    attendeeEmail: speaker.attendeeEmail
+                ))
+            }
+        }
+        return merged.isEmpty ? nil : merged
     }
 
     /// A merged recording contributes the parts it was made of rather than itself, so merging a

@@ -354,6 +354,48 @@ final class MeetingMergeTests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// Each recording numbers its voices from one, so "1" in two of them is two different people.
+    /// Merging has to keep them apart, however tempting it is to collapse them.
+    func testVoicesFromTwoRecordingsAreKeptApart() throws {
+        let first = try makeRecording(
+            startedAt: .distantPast,
+            micSeconds: 10,
+            systemSeconds: 10,
+            speakers: [MeetingSpeaker(id: "1", ordinal: 1, name: "Ivan Petrov")]
+        )
+        let second = try makeRecording(
+            startedAt: Date(),
+            micSeconds: 5,
+            systemSeconds: 5,
+            speakers: [MeetingSpeaker(id: "1", ordinal: 1)]
+        )
+        let plan = try MeetingMerge.plan(merging: [first, second], title: "Joined", in: root)
+
+        let lines = MeetingMerge.transcript(for: plan, transcripts: [
+            first.id: [TranscriptLine(source: .others, offset: 1, text: "First", speakerID: "1")],
+            second.id: [TranscriptLine(source: .others, offset: 1, text: "Second", speakerID: "1")]
+        ])
+
+        let speakers = try XCTUnwrap(plan.meeting.speakers)
+        XCTAssertEqual(speakers.count, 2)
+        XCTAssertEqual(speakers.map(\.ordinal), [1, 2])
+        XCTAssertEqual(speakers.map(\.name), ["Ivan Petrov", nil])
+        XCTAssertEqual(Set(lines.compactMap(\.speakerID)).count, 2)
+        XCTAssertEqual(
+            lines.map { line in speakers.first { $0.id == line.speakerID }?.displayName },
+            ["Ivan Petrov", "Speaker 2"]
+        )
+    }
+
+    func testMergingRecordingsWithoutVoicesLeavesNoSpeakerTable() throws {
+        let first = try makeRecording(startedAt: .distantPast, micSeconds: 4, systemSeconds: nil)
+        let second = try makeRecording(startedAt: Date(), micSeconds: 4, systemSeconds: nil)
+
+        let plan = try MeetingMerge.plan(merging: [first, second], title: "Joined", in: root)
+
+        XCTAssertNil(plan.meeting.speakers)
+    }
+
     private func makeRecording(
         title: String = "Recording",
         kind: DetectedMeeting.Kind = .zoom,
@@ -362,6 +404,7 @@ final class MeetingMergeTests: XCTestCase {
         systemSeconds: Double?,
         transcriptionModel: String? = nil,
         calendar: MeetingCalendarInfo? = nil,
+        speakers: [MeetingSpeaker]? = nil,
         mergedSegments: [MergedMeetingSegment]? = nil
     ) throws -> Meeting {
         let id = UUID()
@@ -383,6 +426,7 @@ final class MeetingMergeTests: XCTestCase {
             hasSystemTrack: systemSeconds != nil,
             transcriptionModel: transcriptionModel,
             calendar: calendar,
+            speakers: speakers,
             mergedSegments: mergedSegments
         )
     }

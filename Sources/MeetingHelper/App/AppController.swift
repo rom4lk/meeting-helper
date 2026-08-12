@@ -13,6 +13,7 @@ final class AppController: ObservableObject {
     let iCloudSync = ICloudMeetingSyncCoordinator()
     let detector = MeetingDetector()
     let calendar = CalendarService()
+    let speakerProfiles = SpeakerProfileStore()
 
     @Published private(set) var session: RecordingSession?
     @Published private(set) var isStopping = false
@@ -42,6 +43,7 @@ final class AppController: ObservableObject {
     private var storeObserver: AnyCancellable?
     private var iCloudSyncObserver: AnyCancellable?
     private var calendarObserver: AnyCancellable?
+    private var speakerProfilesObserver: AnyCancellable?
     private var hasBootstrapped = false
     private var stopCompletions: [() -> Void] = []
     private var shouldStartPendingMeetingAfterStop = true
@@ -66,6 +68,9 @@ final class AppController: ObservableObject {
             self?.objectWillChange.send()
         }
         calendarObserver = calendar.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        speakerProfilesObserver = speakerProfiles.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         store.onLibraryChange = { [weak self] change in
@@ -129,7 +134,8 @@ final class AppController: ObservableObject {
                     detectedAt: Date()
                 ),
                 settings: settings,
-                engine: engine
+                engine: engine,
+                profileStore: speakerProfiles
             )
             sessionObserver = session.objectWillChange.sink { [weak self] _ in
                 self?.objectWillChange.send()
@@ -450,15 +456,22 @@ final class AppController: ObservableObject {
             return
         }
 
-        let session = RecordingSession(detected: meeting, settings: settings, engine: engine)
+        let session = RecordingSession(
+            detected: meeting,
+            settings: settings,
+            engine: engine,
+            profileStore: speakerProfiles
+        )
         // RecordingSession is a nested ObservableObject, so its changes have to be forwarded
         // for views that observe only the controller.
         sessionObserver = session.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         self.session = session
-        session.start()
+        // Before starting, not after: the event supplies the roster that speaker attribution seeds
+        // itself from, and the recording never has to show the window title first.
         applyCalendarMatch(for: meeting, to: session)
+        session.start()
 
         if settings.showPanelOnStart, settings.liveTranscriptEnabled {
             showPanel()

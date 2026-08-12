@@ -40,6 +40,9 @@ final class SourceTranscriber: @unchecked Sendable {
 
     private let source: TranscriptSource
     private let transcribe: @Sendable ([Float], String?) async -> String?
+    /// Names the voice in a finished utterance. Only the system track has one: the microphone is
+    /// always the account owner, and asking a speaker model to confirm that would be waste.
+    private let attribute: (@Sendable ([Float], TimeInterval) async -> String?)?
     private let onUpdate: @MainActor (SourceTranscriptionUpdate) -> Void
     private let queue: DispatchQueue
     private let realtimeUpdatesEnabled: Bool
@@ -78,10 +81,12 @@ final class SourceTranscriber: @unchecked Sendable {
         echoReference: EchoReference? = nil,
         onEchoVerdict: (@MainActor (EchoVerdict) -> Void)? = nil,
         transcribe: @escaping @Sendable ([Float], String?) async -> String?,
+        attribute: (@Sendable ([Float], TimeInterval) async -> String?)? = nil,
         onUpdate: @escaping @MainActor (SourceTranscriptionUpdate) -> Void
     ) {
         self.source = source
         self.transcribe = transcribe
+        self.attribute = attribute
         self.language = language
         self.realtimeUpdatesEnabled = realtimeUpdatesEnabled
         self.echoReference = echoReference
@@ -98,6 +103,7 @@ final class SourceTranscriber: @unchecked Sendable {
         realtimeUpdatesEnabled: Bool,
         echoReference: EchoReference? = nil,
         onEchoVerdict: (@MainActor (EchoVerdict) -> Void)? = nil,
+        attribute: (@Sendable ([Float], TimeInterval) async -> String?)? = nil,
         onUpdate: @escaping @MainActor (SourceTranscriptionUpdate) -> Void
     ) {
         self.init(
@@ -109,6 +115,7 @@ final class SourceTranscriber: @unchecked Sendable {
             transcribe: { samples, language in
                 await engine.transcribe(samples, language: language, model: model)
             },
+            attribute: attribute,
             onUpdate: onUpdate
         )
     }
@@ -251,7 +258,7 @@ final class SourceTranscriber: @unchecked Sendable {
         let source = self.source
         let language = self.language
 
-        track { [transcribe, onUpdate, onEchoVerdict, echoReference, delayEstimator] in
+        track { [transcribe, attribute, onUpdate, onEchoVerdict, echoReference, delayEstimator] in
             if let previewTask {
                 await previewTask.value
             }
@@ -282,7 +289,22 @@ final class SourceTranscriber: @unchecked Sendable {
                 return
             }
             guard !Task.isCancelled else { return }
-            let line = TranscriptLine(id: utteranceID, source: source, offset: offset, text: text)
+
+            // Naming the voice comes after recognition, so a phrase that never becomes a line does
+            // not invent a speaker. A hallucination on near-silence would otherwise leave behind a
+            // voice nobody ever hears again.
+            var speakerID: String?
+            if let attribute {
+                speakerID = await attribute(samples, Double(samples.count) / Constants.sampleRate)
+            }
+
+            let line = TranscriptLine(
+                id: utteranceID,
+                source: source,
+                offset: offset,
+                text: text,
+                speakerID: speakerID
+            )
             await onUpdate(.final(line))
         }
     }

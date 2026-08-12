@@ -44,6 +44,8 @@ final class RecordingSession: ObservableObject {
     @Published private(set) var echoGateFiring = false
     /// The calendar event this recording was matched to, set once as the recording starts.
     @Published private(set) var calendar: MeetingCalendarInfo?
+    /// The distinct voices heard so far on the system track, and what they are called.
+    @Published private(set) var roster = SpeakerRoster()
 
     private var lastEchoDropAt: Date?
     private var systemPeak: Float = 0
@@ -51,8 +53,11 @@ final class RecordingSession: ObservableObject {
 
     private let settings: AppSettings
     private let engine: TranscriptionEngine
+    private let profileStore: SpeakerProfileStore
     private let transcriptDeduplicationEnabled: Bool
     private let realtimeTranscriptEnabled: Bool
+    /// `nil` when speaker attribution is off, or when there is no live transcript for it to label.
+    private let attributor: SpeakerAttributor?
     private var previewLineIDs: Set<UUID> = []
 
     private let microphone = MicrophoneCapture()
@@ -70,24 +75,57 @@ final class RecordingSession: ObservableObject {
     private var systemRetryTimer: Timer?
     private var systemRetriesLeft = 15
 
-    init(detected: DetectedMeeting, settings: AppSettings, engine: TranscriptionEngine) {
+    init(
+        detected: DetectedMeeting,
+        settings: AppSettings,
+        engine: TranscriptionEngine,
+        profileStore: SpeakerProfileStore
+    ) {
         self.detected = detected
         self.settings = settings
         self.engine = engine
+        self.profileStore = profileStore
         self.transcriptDeduplicationEnabled = settings.transcriptDeduplicationEnabled
         self.realtimeTranscriptEnabled = settings.realtimeTranscriptEnabled
         self.echoReference = settings.echoGateEnabled ? EchoReference() : nil
         self.transcriptionModel = settings.liveTranscriptEnabled ? settings.model : nil
+        self.attributor = settings.liveTranscriptEnabled && settings.speakerAttributionEnabled
+            ? SpeakerAttributor()
+            : nil
         self.title = detected.title
     }
 
     /// Adopts a confidently matched calendar event, including its title and attendee list.
+    ///
+    /// Called before `start`, so the voices of the people on the invitation are already known when
+    /// the first utterance arrives.
     func apply(_ match: CalendarEventMatcher.Match) {
         guard match.isConfident else { return }
-        calendar = MeetingCalendarInfo(event: match.event)
+        let info = MeetingCalendarInfo(event: match.event)
+        calendar = info
+        roster = SpeakerRoster(attendees: info.otherAttendees)
         let calendarTitle = match.event.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !calendarTitle.isEmpty {
             title = calendarTitle
+        }
+    }
+
+    /// Ties a voice to somebody on the invitation, or clears its name when `attendee` is `nil`.
+    ///
+    /// Naming a voice while the recording runs is also what teaches it: the embeddings only exist
+    /// for as long as the session does, so this is the moment the person becomes recognizable at
+    /// their next meeting.
+    func assign(_ attendee: CalendarAttendee?, toSpeaker id: String) {
+        roster.assign(attendee, to: id)
+
+        guard let attendee, let attributor else { return }
+        Task { [attributor, profileStore] in
+            guard let embedding = await attributor.embedding(forSpeaker: id) else { return }
+            profileStore.remember(
+                email: attendee.email,
+                name: attendee.name,
+                embedding: embedding
+            )
         }
     }
 
@@ -103,6 +141,7 @@ final class RecordingSession: ObservableObject {
             Log.audio.error("Cannot create meeting directory: \(error, privacy: .public)")
         }
 
+        prepareSpeakerAttribution()
         startTranscription()
         startMicrophone()
         startSystemAudio()
@@ -163,7 +202,8 @@ final class RecordingSession: ObservableObject {
             hasMicTrack: hasMic,
             hasSystemTrack: hasSystem,
             transcriptionModel: transcriptionModel,
-            calendar: calendar
+            calendar: calendar,
+            speakers: roster.speakers.isEmpty ? nil : roster.speakers
         )
     }
 
@@ -314,7 +354,8 @@ final class RecordingSession: ObservableObject {
             engine: engine,
             model: model,
             language: language,
-            realtimeUpdatesEnabled: realtimeTranscriptEnabled
+            realtimeUpdatesEnabled: realtimeTranscriptEnabled,
+            attribute: attributeHandler()
         ) { [weak self] update in
             self?.receive(update)
         }
@@ -344,6 +385,31 @@ final class RecordingSession: ObservableObject {
                 transcriptionState = .failed(error.localizedDescription)
             }
         }
+    }
+
+    /// Loads the speaker models in the background and seeds them with the voices of the people on
+    /// the invitation. Utterances that arrive before it is ready simply carry no voice.
+    private func prepareSpeakerAttribution() {
+        guard let attributor else { return }
+
+        let profiles = profileStore.profiles(for: roster.attendees)
+        Task { await attributor.prepare(with: profiles) }
+    }
+
+    private func attributeHandler() -> (@Sendable ([Float], TimeInterval) async -> String?)? {
+        guard let attributor else { return nil }
+
+        return { [weak self] samples, duration in
+            guard let assignment = await attributor.assign(samples, duration: duration) else {
+                return nil
+            }
+            await self?.note(assignment)
+            return assignment.id
+        }
+    }
+
+    private func note(_ assignment: SpeakerAttributor.Assignment) {
+        roster.note(assignment.id, recognizedAs: assignment.profileEmail)
     }
 
     private func receive(_ update: SourceTranscriptionUpdate) {

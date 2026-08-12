@@ -15,7 +15,12 @@ struct FloatingTranscriptView: View {
                 if lines.isEmpty {
                     placeholder(for: session)
                 } else {
-                    TranscriptView(lines: lines, compact: true, autoScroll: true)
+                    TranscriptView(
+                        lines: lines,
+                        speakers: session.roster.speakers,
+                        compact: true,
+                        autoScroll: true
+                    )
                 }
             } else {
                 Text("Not recording")

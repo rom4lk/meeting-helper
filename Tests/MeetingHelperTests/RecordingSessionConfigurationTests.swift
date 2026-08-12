@@ -21,7 +21,8 @@ final class RecordingSessionConfigurationTests: XCTestCase {
                 detectedAt: Date()
             ),
             settings: settings,
-            engine: TranscriptionEngine()
+            engine: TranscriptionEngine(),
+            profileStore: SpeakerProfileStore(url: .temporaryProfileStore())
         )
         settings.model = replacementModel
 

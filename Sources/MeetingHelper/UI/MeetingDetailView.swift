@@ -9,6 +9,7 @@ struct MeetingDetailView: View {
 
     @State private var title: String = ""
     @State private var lines: [TranscriptLine] = []
+    @State private var speakers: [MeetingSpeaker] = []
     @State private var isShowingDeleteConfirmation = false
     @State private var editingMeetingID: UUID?
     @FocusState private var isTitleFocused: Bool
@@ -26,7 +27,7 @@ struct MeetingDetailView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                TranscriptView(lines: lines)
+                TranscriptView(lines: lines, speakers: speakers)
             }
         }
         .onAppear(perform: load)
@@ -107,6 +108,14 @@ struct MeetingDetailView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
 
+            // Renaming here fixes this transcript only. Recognizing the person at the next meeting
+            // takes their voice, and that is gone once the recording it was heard in has ended.
+            SpeakerLegend(
+                speakers: speakers,
+                attendees: meeting.calendar?.otherAttendees ?? [],
+                assign: assign
+            )
+
             if player.isAvailable {
                 playerControls
             }
@@ -160,6 +169,7 @@ struct MeetingDetailView: View {
         title = meeting.title
         editingMeetingID = meeting.id
         lines = controller.store.transcript(for: meeting.id)
+        speakers = meeting.speakers ?? []
         player.load(url: MeetingLibrary.mixdownURL(for: meeting.id))
     }
 
@@ -179,6 +189,25 @@ struct MeetingDetailView: View {
         }
     }
 
+    private func assign(_ attendee: CalendarAttendee?, toSpeaker id: String) {
+        guard editingMeetingID == meeting.id else { return }
+
+        var roster = SpeakerRoster(
+            attendees: meeting.calendar?.otherAttendees ?? [],
+            speakers: speakers
+        )
+        roster.assign(attendee, to: id)
+        speakers = roster.speakers
+
+        var updated = meeting
+        updated.speakers = speakers
+        do {
+            try controller.store.save(updated)
+        } catch {
+            controller.errorMessage = "Cannot save the speaker name: \(error.localizedDescription)"
+        }
+    }
+
     private func deleteMeeting() {
         if meeting.requiresDeletionConfirmation {
             isShowingDeleteConfirmation = true
@@ -190,6 +219,7 @@ struct MeetingDetailView: View {
     private func copyTranscript() {
         let text = TranscriptTextFormatter.string(
             from: lines,
+            speakers: speakers,
             transcriptionModel: meeting.transcriptionModel
         )
 

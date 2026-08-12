@@ -181,6 +181,105 @@ final class SourceTranscriberTests: XCTestCase {
         XCTAssertEqual(models, ["model-at-recording-start"])
     }
 
+    // MARK: - Speaker attribution
+
+    /// Records what the speaker model was asked about, from whichever task the utterance closed on.
+    private final class AttributionCalls: @unchecked Sendable {
+        private let lock = NSLock()
+        private var durations: [TimeInterval] = []
+
+        func answer(duration: TimeInterval) -> String {
+            lock.lock()
+            durations.append(duration)
+            let call = durations.count
+            lock.unlock()
+            return "voice-\(call)"
+        }
+
+        var observed: [TimeInterval] {
+            lock.lock()
+            defer { lock.unlock() }
+            return durations
+        }
+    }
+
+    func testTheFinalLineCarriesTheVoiceAndPreviewsDoNot() async {
+        let final = expectation(description: "Final result")
+        let attribution = AttributionCalls()
+        let updates = TranscriptUpdates()
+
+        let transcriber = SourceTranscriber(
+            source: .others,
+            language: "en",
+            realtimeUpdatesEnabled: true,
+            transcribe: { _, _ in "Anything" },
+            attribute: { _, duration in attribution.answer(duration: duration) },
+            onUpdate: { update in
+                updates.append(update)
+                if case .final = update { final.fulfill() }
+            }
+        )
+
+        let speech = [Float](repeating: 0.1, count: 40 * SourceTranscriber.frameSize)
+        let silence = [Float](repeating: 0, count: 8 * SourceTranscriber.frameSize)
+        transcriber.feed(speech + silence)
+        await transcriber.finish(waitForTranscription: true)
+        await fulfillment(of: [final], timeout: 1)
+
+        XCTAssertEqual(updates.finals.map(\.speakerID), ["voice-1"])
+        XCTAssertTrue(updates.previews.allSatisfy { $0.speakerID == nil })
+        // One embedding for the utterance, not one per two-second preview of it.
+        XCTAssertEqual(attribution.observed.count, 1)
+        XCTAssertEqual(attribution.observed.first ?? 0, 4.8, accuracy: 0.001)
+    }
+
+    func testAnUnrecognizedPhraseNeverAsksWhoSaidIt() async {
+        let removed = expectation(description: "Preview removed")
+        let attribution = AttributionCalls()
+
+        let transcriber = SourceTranscriber(
+            source: .others,
+            language: "en",
+            realtimeUpdatesEnabled: false,
+            transcribe: { _, _ in nil },
+            attribute: { _, duration in attribution.answer(duration: duration) },
+            onUpdate: { update in
+                if case .removePreview = update { removed.fulfill() }
+            }
+        )
+
+        let speech = [Float](repeating: 0.1, count: 40 * SourceTranscriber.frameSize)
+        let silence = [Float](repeating: 0, count: 8 * SourceTranscriber.frameSize)
+        transcriber.feed(speech + silence)
+        await transcriber.finish(waitForTranscription: true)
+        await fulfillment(of: [removed], timeout: 1)
+
+        XCTAssertTrue(attribution.observed.isEmpty)
+    }
+
+    func testWithoutAnAttributorLinesSimplyCarryNoVoice() async {
+        let final = expectation(description: "Final result")
+        let updates = TranscriptUpdates()
+
+        let transcriber = makeTranscriber(
+            source: .others,
+            language: "en",
+            transcribe: { _, _ in "Anything" },
+            onLine: { line in
+                updates.append(.final(line))
+                final.fulfill()
+            }
+        )
+
+        let speech = [Float](repeating: 0.1, count: 40 * SourceTranscriber.frameSize)
+        let silence = [Float](repeating: 0, count: 8 * SourceTranscriber.frameSize)
+        transcriber.feed(speech + silence)
+        await transcriber.finish(waitForTranscription: true)
+        await fulfillment(of: [final], timeout: 1)
+
+        XCTAssertEqual(updates.finals.map(\.speakerID), [nil])
+    }
+
     // MARK: - Echo gate
 
     /// Verdicts arrive on the main actor from a background task, so the test reads them under a lock.

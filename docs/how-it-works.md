@@ -274,9 +274,9 @@ faster unless the system cache has been evicted.
 ## Calendar
 
 Calendar integration is optional and read-only. It exists to answer two questions a recording
-cannot answer on its own: what the meeting is actually called, and who was invited to it. The second
-one is groundwork — the attendee list is the vocabulary that a later speaker-attribution stage needs
-in order to turn anonymous voices into names.
+cannot answer on its own: what the meeting is actually called, and who was invited to it. The
+attendee list is also the vocabulary speaker attribution draws on to turn anonymous voices into
+names.
 
 ### Where the events come from
 
@@ -360,6 +360,86 @@ unchanged.
 An older build of the app that saves a title edit over a newer `meeting.json` drops this field, the
 same way it drops a meeting kind it does not recognize.
 
+## Speaker attribution
+
+Optional, on by default with the live transcript, and applied to the system track only. The
+microphone is the account owner by definition, so asking a speaker model to confirm that would be
+waste and would add a way to get it wrong.
+
+### Where a voice comes from
+
+Attribution reuses the utterances the VAD already cuts. Once a phrase has been recognized — and only
+then, so a hallucination on near-silence cannot invent a voice nobody hears again — the same samples
+go to FluidAudio's `wespeaker_v2` embedding model, and the resulting 256-dimensional vector is
+matched against the voices heard so far. A match yields that voice's id; no match creates a new one.
+
+The embedding model reads a fixed ten-second window (160 000 samples at 16 kHz), so longer
+utterances are cut to their first ten seconds before being handed over. By then the VAD has already
+closed on 0.8 seconds of silence, which makes a single speaker within that window very likely.
+Shorter audio is repeat-padded by the model itself. The true duration is passed along rather than
+the padded one: below a second the speaker database will match an existing voice but refuses to
+invent one, which is the right treatment for a half-second interjection.
+
+Real-time previews are not attributed. They revisit the same audio every two seconds, so one
+embedding per preview would be both waste and a flickering label. A line therefore gains its name at
+the moment it finalizes, and reads as "Others" until then.
+
+### Naming from the invitation
+
+The calendar supplies names, not voices — there is no embedding for a person until somebody has said
+who they are. What the invitation buys is narrower and still worth having:
+
+- **A one-on-one names itself.** An event with exactly one other person on it makes the first voice
+  on the system track almost certainly them, and it is named without a model saying so.
+- **A short candidate list.** Stored voice profiles are seeded into the speaker database filtered to
+  the people actually invited. Comparing against five voices instead of every voice ever heard is
+  both cheaper and far harder to get wrong.
+- **A closed pick list.** Naming a voice by hand is a choice among the attendees rather than free
+  text, which keeps a person spelled the same way across meetings.
+
+The one-on-one shortcut deliberately stops at the first voice. Anybody can join a scheduled call
+uninvited, and handing that second voice the invited person's name would be a claim nothing supports
+— so it stays "Speaker 2". If the uninvited person happened to speak first and took the name,
+pointing the invited person at the voice that is really theirs takes the name off the other one in
+the same step, rather than producing two people with one name.
+
+### What is stored
+
+Voices are numbered from one within a recording, and a transcript line carries only that id. The
+names live in the meeting's own `speakers` table, so naming a voice is one edit and every line of
+that voice follows. Both fields are optional, so meetings recorded before attribution decode
+unchanged, and a line whose voice is missing from the table falls back to "Others".
+
+Merging two recordings qualifies every voice id with the recording it came from. Each recording
+numbers its voices independently, so "1" in two of them stands for two different people, and
+collapsing them would claim a resemblance nothing has measured.
+
+Naming a voice during a live recording also stores it, in a single local file:
+
+```text
+~/Library/Application Support/MeetingHelper/speakers.json
+```
+
+Each profile is an address, a display name and one embedding. A voice embedding is biometric data,
+so the file sits beside the meeting library rather than inside it — the folder sync copies meeting
+directories, and this must never travel with them. Settings shows how many voices are known and
+offers to forget all of them.
+
+Renaming a voice on a saved meeting is possible too, but it only relabels that transcript. Teaching
+a voice needs its embedding, and those exist only for as long as the recording that heard them.
+
+### What it will not do
+
+- Overlapping speech gets one label. The utterance is one embedding, and two voices in it produce a
+  single answer.
+- A speaker change *inside* one utterance is invisible. The VAD closes on 0.8 seconds of silence,
+  and two people alternating faster than that land in the same utterance.
+- Several people in one conference room, arriving through one microphone, will not reliably separate.
+- The two models (`pyannote_segmentation` and `wespeaker_v2`, from
+  `FluidInference/speaker-diarization-coreml`) are downloaded on first use in the background.
+  Utterances that arrive before they are ready simply carry no voice; nothing waits and nothing is
+  reported, because losing a name is far cheaper than losing the line.
+
 ## Permission handling
 
 The app is intentionally not sandboxed because process-scoped audio taps and the Accessibility API
@@ -402,6 +482,11 @@ Calendar access does put more personal data into the library. Granting it means 
 addresses of the people invited to a meeting are written into `meeting.json`, and therefore into the
 sync folder as well when synchronization is on. Revoking access in System Settings stops new
 recordings from collecting it; the attendee lists already saved with past meetings are left alone.
+
+Speaker attribution adds a second kind of personal data, and a more sensitive one: a voice embedding
+identifies a person the way a fingerprint does. Those are written only when a voice is named by
+hand, only to `speakers.json`, and never into a meeting directory — which is what keeps them out of
+the sync folder. Nothing uploads them and no model leaves the machine to produce them.
 
 Meeting titles, transcript text, and the names and addresses of participants are user data and are
 logged with `privacy: .private`, so they appear as `<private>` in `log show` and Console. Only

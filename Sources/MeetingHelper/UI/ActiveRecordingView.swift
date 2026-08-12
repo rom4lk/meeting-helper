@@ -14,7 +14,7 @@ struct ActiveRecordingView: View {
                 status
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                TranscriptView(lines: lines, autoScroll: true)
+                TranscriptView(lines: lines, speakers: session.roster.speakers, autoScroll: true)
             }
         }
     }
@@ -73,6 +73,14 @@ struct ActiveRecordingView: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+
+            // Naming a voice is only possible here, while the recording still holds its embeddings.
+            // Doing it now is also what teaches the app to recognize that person next time.
+            SpeakerLegend(
+                speakers: session.roster.speakers,
+                attendees: session.roster.attendees,
+                assign: { attendee, id in session.assign(attendee, toSpeaker: id) }
+            )
 
             if session.systemSilent {
                 HStack {

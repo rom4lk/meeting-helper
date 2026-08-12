@@ -14,7 +14,12 @@ and stop recording automatically, and keep a live transcript visible while you w
 - An optional always-on-top transcript panel with real-time preview updates.
 - Your own speech can be hidden from the live transcript at any time, including during a call. The
   saved transcript keeps every line.
-- Echo filtering and transcript deduplication for cleaner speaker attribution.
+- Echo filtering and transcript deduplication keep playback leaking back through the microphone out
+  of the transcript.
+- Optional speaker attribution tells the other participants apart, so a line says who spoke instead
+  of just "Others". A meeting with one other person on the invitation names that voice by itself;
+  elsewhere the voices can be named from the recording window and are then recognized at their next
+  meeting.
 - Process-scoped audio capture for detected meetings, plus manual recording of all system audio.
 - Saved recordings, playback, transcripts, timestamps, and meeting metadata.
 - Recordings of one meeting that ended up saved separately can be merged into a single meeting.
@@ -142,6 +147,25 @@ the enabled calendars are read in a window from one hour back to three hours ahe
 If access was refused earlier, macOS will not ask again — the same section links to
 **Privacy & Security > Calendars**, where it can be turned back on.
 
+### Name the voices
+
+**Settings > Transcript > Tell the other participants apart** groups the meeting audio by voice.
+Two small models are downloaded the first time; until they are ready, lines simply say "Others".
+
+A meeting with exactly one other person on the invitation names that voice on its own. Everywhere
+else the voices start as "Speaker 1", "Speaker 2" and so on, and the recording window lists them
+above the transcript — pick the right person from the invitation and every line of that voice is
+renamed at once. Doing this during the recording is also what teaches the app the voice, so the same
+person is recognized at their next meeting. Naming a voice on an already saved meeting relabels that
+transcript only.
+
+If somebody joins a one-on-one uninvited, their voice is *not* given the invited person's name — it
+becomes "Speaker 2". If they spoke first and took the name, assign the invited person to the voice
+that is really theirs; the name comes off the other one automatically.
+
+Known voices are stored locally in `~/Library/Application Support/MeetingHelper/speakers.json`, are
+never part of the iCloud sync, and can be erased with **Forget all** in Settings.
+
 To check the installation, start a manual recording with **Option-Command-R**, speak into the
 microphone, play some system audio, stop the recording, and verify both tracks in the saved meeting.
 
@@ -159,6 +183,11 @@ distinguish "Me" from "Others".
 
 Transcription runs locally with WhisperKit or Parakeet TDT v3. Echo filtering and transcript
 deduplication reduce speaker leakage and duplicate lines.
+
+Speaker attribution groups the meeting-audio track by voice, on device and after recognition, so
+each line names a person rather than the track. The microphone track is never analysed — it is the
+account owner by definition. Names come from the calendar invitation, either automatically for a
+one-on-one or by choosing from the attendees.
 
 When calendar access is granted, calendar metadata is preferred: a recording takes its title and
 participant list from the matching event. The window title is used only when no calendar event can
