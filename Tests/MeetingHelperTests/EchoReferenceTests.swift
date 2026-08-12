@@ -2,61 +2,59 @@ import XCTest
 @testable import MeetingHelper
 
 final class EchoReferenceTests: XCTestCase {
-    private func frames(_ amplitudes: [Float]) -> [Float] {
-        amplitudes.flatMap { [Float](repeating: $0, count: EchoReference.frameSize) }
+    private func ramp(from first: Int, count: Int) -> [Float] {
+        (0..<count).map { Float(first + $0) }
     }
 
-    func testEnvelopeFollowsTheTimeline() {
+    func testWindowFollowsTheTimeline() {
         let reference = EchoReference()
-        reference.append(frames([0.1, 0.2, 0.3, 0.4, 0.5]))
+        reference.append(ramp(from: 0, count: 16_000))
 
-        XCTAssertEqual(reference.coveredUntil, 0.5, accuracy: 0.001)
+        XCTAssertEqual(reference.coveredUntil, 1, accuracy: 0.001)
 
-        let envelope = reference.envelope(startingAt: 0.2, frameCount: 2)
-        XCTAssertEqual(envelope?.count, 2)
-        XCTAssertEqual(envelope?[0] ?? 0, 0.3, accuracy: 0.001)
-        XCTAssertEqual(envelope?[1] ?? 0, 0.4, accuracy: 0.001)
+        let window = reference.window(startingAt: 0.5, sampleCount: 3)
+        XCTAssertEqual(window, [8_000, 8_001, 8_002])
     }
 
     func testSamplesArriveInAnyChunkSize() {
         let reference = EchoReference()
-        let samples = frames([0.1, 0.2, 0.3])
+        let samples = ramp(from: 0, count: 4_800)
 
-        // Split across chunk boundaries that do not line up with frames.
         for chunk in stride(from: 0, to: samples.count, by: 700) {
             reference.append(Array(samples[chunk..<min(chunk + 700, samples.count)]))
         }
 
         XCTAssertEqual(reference.coveredUntil, 0.3, accuracy: 0.001)
-        XCTAssertEqual(reference.envelope(startingAt: 0.1, frameCount: 1)?.first ?? 0, 0.2, accuracy: 0.001)
-    }
-
-    func testIncompleteFrameDoesNotAdvanceCoverage() {
-        let reference = EchoReference()
-        reference.append([Float](repeating: 0.1, count: EchoReference.frameSize - 1))
-
-        XCTAssertEqual(reference.coveredUntil, 0)
-        XCTAssertFalse(reference.hasData)
-        XCTAssertNil(reference.envelope(startingAt: 0, frameCount: 1))
+        XCTAssertEqual(reference.window(startingAt: 0.1, sampleCount: 2), [1_600, 1_601])
     }
 
     func testWindowBeyondCoverageIsUnavailable() {
         let reference = EchoReference()
-        reference.append(frames([0.1, 0.2]))
+        reference.append(ramp(from: 0, count: 1_600))
 
         XCTAssertTrue(reference.hasData)
-        XCTAssertNil(reference.envelope(startingAt: 0.1, frameCount: 5))
-        XCTAssertNil(reference.envelope(startingAt: -0.1, frameCount: 1))
+        XCTAssertNil(reference.window(startingAt: 0.05, sampleCount: 1_600))
+        XCTAssertNil(reference.window(startingAt: -0.1, sampleCount: 10))
     }
 
-    func testFramesOlderThanTheBufferAreUnavailable() {
+    func testNoDataBeforeAnythingIsAppended() {
         let reference = EchoReference()
-        for _ in 0..<700 {
-            reference.append([Float](repeating: 0.1, count: EchoReference.frameSize))
+
+        XCTAssertEqual(reference.coveredUntil, 0)
+        XCTAssertFalse(reference.hasData)
+        XCTAssertNil(reference.window(startingAt: 0, sampleCount: 10))
+    }
+
+    /// The ring keeps the most recent minute and hands back the right samples once it has wrapped.
+    func testSamplesOlderThanTheBufferAreUnavailable() {
+        let reference = EchoReference()
+        for second in 0..<70 {
+            reference.append(ramp(from: second * 16_000, count: 16_000))
         }
 
         XCTAssertEqual(reference.coveredUntil, 70, accuracy: 0.001)
-        XCTAssertNil(reference.envelope(startingAt: 0, frameCount: 1))
-        XCTAssertEqual(reference.envelope(startingAt: 69, frameCount: 1)?.first ?? 0, 0.1, accuracy: 0.001)
+        XCTAssertNil(reference.window(startingAt: 0, sampleCount: 10))
+        XCTAssertEqual(reference.window(startingAt: 69, sampleCount: 2), [1_104_000, 1_104_001])
+        XCTAssertEqual(reference.window(startingAt: 10, sampleCount: 2), [160_000, 160_001])
     }
 }

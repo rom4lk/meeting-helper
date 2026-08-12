@@ -82,6 +82,11 @@ The Debug app is development-signed for local use. It is not Developer ID-signed
 distribution. Meeting Helper rejects ad-hoc builds because their identity changes on every rebuild
 and causes macOS to request privacy permissions again.
 
+### Tests
+
+The **MeetingHelper** scheme runs the unit test suite. UI tests are excluded from that scheme and
+can be run separately with the **MeetingHelperUITests** scheme.
+
 ### First run
 
 Grant access to the microphone, system audio recording, and Accessibility when macOS asks. If you

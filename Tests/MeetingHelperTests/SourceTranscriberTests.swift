@@ -90,14 +90,14 @@ final class SourceTranscriberTests: XCTestCase {
             }
         )
 
-        let twoSecondsOfSpeech = [Float](repeating: 0.1, count: 20 * EchoReference.frameSize)
+        let twoSecondsOfSpeech = [Float](repeating: 0.1, count: 20 * SourceTranscriber.frameSize)
         transcriber.feed(twoSecondsOfSpeech)
         await fulfillment(of: [firstPreview], timeout: 1)
 
         transcriber.feed(twoSecondsOfSpeech)
         await fulfillment(of: [secondPreview], timeout: 1)
 
-        transcriber.feed([Float](repeating: 0, count: 8 * EchoReference.frameSize))
+        transcriber.feed([Float](repeating: 0, count: 8 * SourceTranscriber.frameSize))
         await transcriber.finish(waitForTranscription: true)
         await fulfillment(of: [final], timeout: 1)
 
@@ -106,14 +106,14 @@ final class SourceTranscriberTests: XCTestCase {
         XCTAssertEqual(previews.map(\.text), ["Preview 1", "Preview 2"])
         XCTAssertEqual(finalLines.map(\.text), ["Final result"])
         XCTAssertEqual(Set((previews + finalLines).map(\.id)).count, 1)
-        XCTAssertEqual(calls.counts, [20, 40, 48].map { $0 * EchoReference.frameSize })
+        XCTAssertEqual(calls.counts, [20, 40, 48].map { $0 * SourceTranscriber.frameSize })
     }
 
     func testDisabledRealtimeModeOnlyTranscribesTheFinalUtterance() async {
         let recognized = expectation(description: "Final result")
         let calls = RecognitionCalls()
-        let speech = [Float](repeating: 0.1, count: 40 * EchoReference.frameSize)
-        let silence = [Float](repeating: 0, count: 8 * EchoReference.frameSize)
+        let speech = [Float](repeating: 0.1, count: 40 * SourceTranscriber.frameSize)
+        let silence = [Float](repeating: 0, count: 8 * SourceTranscriber.frameSize)
 
         let transcriber = makeTranscriber(
             source: .others,
@@ -127,7 +127,7 @@ final class SourceTranscriberTests: XCTestCase {
         await transcriber.finish(waitForTranscription: true)
         await fulfillment(of: [recognized], timeout: 1)
 
-        XCTAssertEqual(calls.counts, [48 * EchoReference.frameSize])
+        XCTAssertEqual(calls.counts, [48 * SourceTranscriber.frameSize])
     }
 
     func testFinishDoesNotWaitForTranscriptionWhenRecognitionIsNotReady() async {
@@ -171,8 +171,8 @@ final class SourceTranscriberTests: XCTestCase {
             }
         )
 
-        let speech = [Float](repeating: 0.1, count: 40 * EchoReference.frameSize)
-        let silence = [Float](repeating: 0, count: 8 * EchoReference.frameSize)
+        let speech = [Float](repeating: 0.1, count: 40 * SourceTranscriber.frameSize)
+        let silence = [Float](repeating: 0, count: 8 * SourceTranscriber.frameSize)
         transcriber.feed(speech + silence)
         await transcriber.finish(waitForTranscription: true)
         await fulfillment(of: [final], timeout: 1)
@@ -206,57 +206,164 @@ final class SourceTranscriberTests: XCTestCase {
     private static let silence = [Float](repeating: 0, count: 8)
 
     private func samples(_ amplitudes: [Float]) -> [Float] {
-        amplitudes.flatMap { [Float](repeating: $0, count: EchoReference.frameSize) }
+        amplitudes.flatMap { [Float](repeating: $0, count: SourceTranscriber.frameSize) }
     }
 
-    private func reference(_ amplitudes: [Float]) -> EchoReference {
+    // MARK: - Echo gate
+
+    private static let acousticDelay = 360        // 22.5 ms, what the measured route comes to
+    private static let leadingSilence = 16_000    // 1 s, so the first utterance has a reference
+
+    /// Deterministic broadband noise, computed from the absolute sample index so that a shifted
+    /// window is the same signal seen from a different point. Speech-like in the only way that
+    /// matters here: it never repeats, so nothing lines up with it by accident.
+    private func voice(seed: Int, count: Int, from: Int = 0) -> [Float] {
+        (from..<(from + count)).map { index in
+            var bits = UInt64(bitPattern: Int64(index)) &* 0x9E37_79B9_7F4A_7C15
+            bits = bits &+ UInt64(bitPattern: Int64(seed)) &* 0xBF58_476D_1CE4_E5B9
+            bits ^= bits >> 30
+            bits = bits &* 0xBF58_476D_1CE4_E5B9
+            bits ^= bits >> 27
+            return Float(Int32(truncatingIfNeeded: bits)) / Float(Int32.max)
+        }
+    }
+
+    /// Builds a system track of `count` bursts of playback separated by silence, and the
+    /// microphone track that hears them through the room: the same signal, delayed and attenuated.
+    private func meetingOverSpeakers(bursts count: Int, burstSeconds: Double = 2.5)
+        -> (microphone: [Float], reference: EchoReference) {
+        let burst = Int(burstSeconds * AudioTrackWriter.sampleRate)
+        let gap = 16_000
+        var system = [Float](repeating: 0, count: Self.leadingSilence)
+        for index in 0..<count {
+            system += voice(seed: index * 11, count: burst)
+            system += [Float](repeating: 0, count: gap)
+        }
+
+        let microphone = (0..<system.count).map { index -> Float in
+            let source = index - Self.acousticDelay
+            return source >= 0 ? system[source] * 0.05 : 0
+        }
+
         let reference = EchoReference()
-        reference.append(samples(amplitudes + [Float](repeating: 0, count: 6)))
-        return reference
+        reference.append(system)
+        return (microphone, reference)
     }
 
-    func testSpeakerLeakageIsNotTranscribed() async {
-        let played = Self.silence + Self.burst.map { $0 * 3 } + Self.silence
-        let heard = Self.silence + Self.burst.map { $0 * 0.3 } + Self.silence
+    /// Feeds audio the way capture does, a second at a time. Handing over the whole track at once
+    /// closes every utterance in the same breath and lets their gate tasks race each other.
+    private func feed(_ samples: [Float], to transcriber: SourceTranscriber) async {
+        let chunk = Int(AudioTrackWriter.sampleRate)
+        for position in stride(from: 0, to: samples.count, by: chunk) {
+            transcriber.feed(Array(samples[position..<min(position + chunk, samples.count)]))
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    /// The gate cannot judge anything until it has measured the route, so the first utterances
+    /// pass through and the ones after it are dropped.
+    func testSpeakerLeakageIsNotTranscribedOnceTheDelayIsMeasured() async {
+        let track = meetingOverSpeakers(bursts: 5)
         let verdicts = Verdicts()
+
+        let lines = TranscriptUpdates()
 
         let transcriber = makeTranscriber(
             source: .me,
             language: "en",
-            echoReference: reference(played),
+            echoReference: track.reference,
             onEchoVerdict: { verdicts.append($0) },
             transcribe: { _, _ in "Speaker playback that leaked into the microphone." },
-            onLine: { line in XCTFail("Echo was transcribed: \(line.text)") }
+            onLine: { line in lines.append(.final(line)) }
         )
 
-        transcriber.feed(samples(heard))
+        await feed(track.microphone, to: transcriber)
         await transcriber.finish(waitForTranscription: true)
 
-        XCTAssertEqual(verdicts.reported, [.echo])
+        // The first utterance is what the estimator learns the route from, so it passes through.
+        XCTAssertEqual(verdicts.reported.count, 5)
+        XCTAssertEqual(verdicts.reported.filter { $0 == .echo }.count, 4)
+        XCTAssertEqual(lines.finals.count, 1)
     }
 
     func testSpeechIsTranscribedWhileTheSystemIsPlaying() async {
-        let recognized = expectation(description: "Speech was transcribed")
-        // Quiet enough to look like leakage by level alone, but with its own envelope shape.
-        let ownVoice: [Float] = [0.060, 0.048, 0.009, 0.054, 0.012, 0.057, 0.015, 0.051]
-        let played = Self.silence + Self.burst.map { $0 * 3 } + Self.silence
-        let heard = Self.silence + ownVoice + Self.silence
+        let track = meetingOverSpeakers(bursts: 3)
         let verdicts = Verdicts()
+        let lines = TranscriptUpdates()
+
+        // The last burst is the user talking over the playback instead of the room echoing it:
+        // just as quiet, but its own voice.
+        var microphone = track.microphone
+        let ownVoiceStart = microphone.count
+        let burst = Int(2.5 * AudioTrackWriter.sampleRate)
+        var system = [Float](repeating: 0, count: microphone.count)
+        system += voice(seed: 700, count: burst)
+        system += [Float](repeating: 0, count: 16_000)
+        microphone += voice(seed: 71, count: burst, from: ownVoiceStart).map { $0 * 0.05 }
+        microphone += [Float](repeating: 0, count: 16_000)
+        track.reference.append(Array(system[ownVoiceStart...]))
 
         let transcriber = makeTranscriber(
             source: .me,
             language: "en",
-            echoReference: reference(played),
+            echoReference: track.reference,
             onEchoVerdict: { verdicts.append($0) },
             transcribe: { _, _ in "Something I said while the meeting audio was playing." },
-            onLine: { _ in recognized.fulfill() }
+            onLine: { line in lines.append(.final(line)) }
         )
 
-        transcriber.feed(samples(heard))
+        await feed(microphone, to: transcriber)
         await transcriber.finish(waitForTranscription: true)
-        await fulfillment(of: [recognized], timeout: 1)
 
-        XCTAssertEqual(verdicts.reported, [.speech])
+        XCTAssertEqual(verdicts.reported.last, .speech)
+        let ownVoiceOffset = Double(ownVoiceStart) / AudioTrackWriter.sampleRate
+        XCTAssertTrue(
+            lines.finals.contains { abs($0.offset - ownVoiceOffset) < 0.5 },
+            "Own speech over playback was not transcribed: \(lines.finals.map(\.offset))"
+        )
+    }
+
+    /// The pause that closes an utterance is longer than the pause between one person finishing
+    /// and the other answering, so leakage arrives glued to the front of the reply. The gate has
+    /// to trim it instead of judging the pair as one.
+    func testLeakageIsTrimmedOffTheFrontOfAReply() async {
+        let track = meetingOverSpeakers(bursts: 3)
+        let verdicts = Verdicts()
+        let lines = TranscriptUpdates()
+
+        var microphone = track.microphone
+        let replyStart = microphone.count
+        let leak = Int(1.5 * AudioTrackWriter.sampleRate)
+        let reply = Int(2.5 * AudioTrackWriter.sampleRate)
+
+        // Playback, then a 400 ms pause — too short to close the utterance — then the reply.
+        var system = voice(seed: 500, count: leak)
+        system += [Float](repeating: 0, count: reply + 16_000 + 6_400)
+        track.reference.append(system)
+
+        var heard = [Float](repeating: 0, count: leak + 6_400)
+        for index in Self.acousticDelay..<(leak + Self.acousticDelay) {
+            heard[index] = system[index - Self.acousticDelay] * 0.05
+        }
+        microphone += heard
+        microphone += voice(seed: 83, count: reply, from: replyStart).map { $0 * 0.05 }
+        microphone += [Float](repeating: 0, count: 16_000)
+
+        let transcriber = makeTranscriber(
+            source: .me,
+            language: "en",
+            echoReference: track.reference,
+            onEchoVerdict: { verdicts.append($0) },
+            transcribe: { _, _ in "The reply, without the leakage in front of it." },
+            onLine: { line in lines.append(.final(line)) }
+        )
+
+        await feed(microphone, to: transcriber)
+        await transcriber.finish(waitForTranscription: true)
+
+        XCTAssertEqual(verdicts.reported.last, .speech)
+        let expectedReplyOffset = Double(replyStart + leak + 6_400) / AudioTrackWriter.sampleRate
+        XCTAssertEqual(lines.finals.last?.offset ?? 0, expectedReplyOffset, accuracy: 0.5)
     }
 
     /// With the gate off there is no reference at all, so nothing is compared and nothing waits

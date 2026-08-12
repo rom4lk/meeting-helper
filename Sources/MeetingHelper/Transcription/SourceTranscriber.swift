@@ -14,9 +14,12 @@ enum SourceTranscriptionUpdate: Sendable {
 /// `feed` is called from the track writer's queue and every mutable field below is touched only
 /// on `queue`, so instances are safe to hand to a capture callback.
 final class SourceTranscriber: @unchecked Sendable {
+    /// 100 ms at `AudioTrackWriter.sampleRate`, the unit the VAD works in.
+    static let frameSize = 1_600
+
     private enum Constants {
         static let sampleRate: Double = AudioTrackWriter.sampleRate
-        static let frameSize = EchoReference.frameSize  // 100 ms
+        static let frameSize = SourceTranscriber.frameSize
         static let preRollFrames = 3                    // 300 ms kept before speech onset
         static let silenceFramesToClose = 8             // 800 ms of silence ends an utterance
         static let minSpeechFrames = 4                  // shorter bursts are noise
@@ -27,6 +30,12 @@ final class SourceTranscriber: @unchecked Sendable {
         /// How long an utterance waits for the system track to reach it before giving up.
         static let referenceWaitLimit: TimeInterval = 0.5
         static let referencePollInterval: UInt64 = 50_000_000
+        /// Windows an utterance contributes to the delay estimate.
+        static let delayObservationsPerUtterance = 4
+        /// Share of an utterance's audible windows that has to be leakage before the whole thing
+        /// is treated as leakage. Measured over labelled recordings: leaked phrases land above
+        /// 60 %, speech over playback below 10 %.
+        static let leakageShare = 0.5
     }
 
     private let source: TranscriptSource
@@ -37,15 +46,15 @@ final class SourceTranscriber: @unchecked Sendable {
     private let echoReference: EchoReference?
     /// Reports every echo-gate decision so the recording UI can show that the gate is working.
     private let onEchoVerdict: (@MainActor (EchoVerdict) -> Void)?
+    /// Learns the route's acoustic delay from the utterances that pass through, so the gate can
+    /// line the two tracks up. Shared across utterances, hence its own lock.
+    private let delayEstimator = EchoDelayEstimator()
 
     private var language: String?
 
     private var inbox: [Float] = []
     private var preRoll: [[Float]] = []
     private var pending: [Float] = []
-    /// Per-frame loudness of `pending` and `preRoll`, kept for the echo gate.
-    private var preRollEnergies: [Float] = []
-    private var pendingEnergies: [Float] = []
     private var inUtterance = false
     private var speechFrames = 0
     private var silenceFrames = 0
@@ -130,9 +139,7 @@ final class SourceTranscriber: @unchecked Sendable {
                     self.activePreviewGeneration = nil
                     self.inbox.removeAll()
                     self.pending.removeAll()
-                    self.pendingEnergies.removeAll()
                     self.preRoll.removeAll()
-                    self.preRollEnergies.removeAll()
                     self.utteranceID = nil
                     self.tasks.values.forEach { $0.cancel() }
                     self.tasks.removeAll()
@@ -181,7 +188,6 @@ final class SourceTranscriber: @unchecked Sendable {
 
         if inUtterance {
             pending.append(contentsOf: frame)
-            pendingEnergies.append(energy)
             if isSpeech {
                 speechFrames += 1
                 silenceFrames = 0
@@ -197,10 +203,8 @@ final class SourceTranscriber: @unchecked Sendable {
             }
         } else {
             preRoll.append(frame)
-            preRollEnergies.append(energy)
             if preRoll.count > Constants.preRollFrames {
                 preRoll.removeFirst()
-                preRollEnergies.removeFirst()
             }
 
             guard isSpeech else { return }
@@ -209,9 +213,7 @@ final class SourceTranscriber: @unchecked Sendable {
             utteranceID = UUID()
             utteranceStartFrame = framesSeen - preRoll.count
             pending = preRoll.flatMap { $0 }
-            pendingEnergies = preRollEnergies
             preRoll.removeAll()
-            preRollEnergies.removeAll()
             speechFrames = 1
             silenceFrames = 0
             lastPreviewFrameCount = 0
@@ -228,9 +230,7 @@ final class SourceTranscriber: @unchecked Sendable {
             inUtterance = false
             utteranceID = nil
             pending.removeAll()
-            pendingEnergies.removeAll()
             preRoll.removeAll()
-            preRollEnergies.removeAll()
             speechFrames = 0
             silenceFrames = 0
             lastPreviewFrameCount = 0
@@ -247,25 +247,36 @@ final class SourceTranscriber: @unchecked Sendable {
         }
 
         let samples = pending
-        let energies = pendingEnergies
         let offset = Double(utteranceStartFrame) * Double(Constants.frameSize) / Constants.sampleRate
         let source = self.source
         let language = self.language
 
-        track { [transcribe, onUpdate, onEchoVerdict, echoReference] in
+        track { [transcribe, onUpdate, onEchoVerdict, echoReference, delayEstimator] in
             if let previewTask {
                 await previewTask.value
             }
             guard !Task.isCancelled else { return }
+
+            var samples = samples
+            var offset = offset
             if let echoReference {
-                let verdict = await Self.verdict(for: energies, at: offset, reference: echoReference)
-                await onEchoVerdict?(verdict)
-                if verdict == .echo {
+                let decision = await Self.decide(
+                    samples: samples,
+                    at: offset,
+                    reference: echoReference,
+                    delayEstimator: delayEstimator,
+                    learning: true
+                )
+                await onEchoVerdict?(decision.verdict)
+                if decision.verdict == .echo {
                     Log.audio.info("Dropped speaker leakage at \(offset, privacy: .public) s")
                     await onUpdate(.removePreview(utteranceID))
                     return
                 }
+                offset += Double(decision.kept.lowerBound) / Constants.sampleRate
+                samples = Array(samples[decision.kept])
             }
+
             guard let text = await transcribe(samples, language) else {
                 await onUpdate(.removePreview(utteranceID))
                 return
@@ -287,7 +298,6 @@ final class SourceTranscriber: @unchecked Sendable {
         guard frameCount >= lastPreviewFrameCount + Constants.previewIntervalFrames else { return }
 
         let samples = pending
-        let energies = pendingEnergies
         let offset = Double(utteranceStartFrame) * Double(Constants.frameSize) / Constants.sampleRate
         let source = self.source
         let language = self.language
@@ -298,18 +308,30 @@ final class SourceTranscriber: @unchecked Sendable {
         let generation = previewGeneration
         activePreviewGeneration = generation
 
-        let task = Task { [weak self, transcribe, onUpdate, echoReference] in
+        let task = Task { [weak self, transcribe, onUpdate, echoReference, delayEstimator] in
+            var samples = samples
+            var offset = offset
             if let echoReference {
-                let verdict = await Self.verdict(for: energies, at: offset, reference: echoReference)
+                // Previews revisit the same audio every couple of seconds, so they only read the
+                // delay estimate — feeding it here would count one window many times over.
+                let decision = await Self.decide(
+                    samples: samples,
+                    at: offset,
+                    reference: echoReference,
+                    delayEstimator: delayEstimator,
+                    learning: false
+                )
                 guard !Task.isCancelled else {
                     queue.async { [weak self] in self?.previewDidFinish(generation) }
                     return
                 }
-                if verdict == .echo {
+                if decision.verdict == .echo {
                     await onUpdate(.removePreview(utteranceID))
                     queue.async { [weak self] in self?.previewDidFinish(generation) }
                     return
                 }
+                offset += Double(decision.kept.lowerBound) / Constants.sampleRate
+                samples = Array(samples[decision.kept])
             }
 
             if let text = await transcribe(samples, language), !Task.isCancelled {
@@ -338,35 +360,160 @@ final class SourceTranscriber: @unchecked Sendable {
         }
     }
 
-    /// Waits for the system track to reach the end of the utterance, then asks the gate.
+    /// What the gate concluded about one utterance, and which part of it is worth recognizing.
+    private struct EchoDecision {
+        var verdict: EchoVerdict
+        /// The stretch to keep, in samples from the start of the utterance.
+        var kept: Range<Int>
+    }
+
+    /// Waits for the system track to reach the end of the utterance, lines the two up at the
+    /// route's delay, and asks the gate.
     ///
     /// Everything short of a confident echo verdict passes through — no reference, a window that
-    /// scrolled out of the buffer, coverage that never arrives. Transcript deduplication is the
-    /// second net, and dropping real speech is the worse failure.
-    private static func verdict(
-        for energies: [Float],
+    /// scrolled out of the buffer, coverage that never arrives, a delay not yet measured.
+    /// Transcript deduplication is the second net, and dropping real speech is the worse failure.
+    private static func decide(
+        samples: [Float],
         at offset: TimeInterval,
-        reference: EchoReference
-    ) async -> EchoVerdict {
-        guard energies.count >= EchoGate.minimumFrames, reference.hasData else { return .undecided }
+        reference: EchoReference,
+        delayEstimator: EchoDelayEstimator,
+        learning: Bool
+    ) async -> EchoDecision {
+        let whole = EchoDecision(verdict: .undecided, kept: 0..<samples.count)
+        guard samples.count >= EchoGate.minimumSamples, reference.hasData else { return whole }
 
-        let lagSpan = Double(EchoGate.maximumLagFrames) * EchoReference.frameDuration
-        let start = offset - lagSpan
-        guard start >= 0 else { return .undecided }
+        // The reference has to start far enough ahead of the utterance for every delay to be
+        // tried, and reach past its end by the alignment slack at either side.
+        let lead = Double(EchoDelayEstimator.maximumDelay + EchoGate.alignmentSpan)
+            / Constants.sampleRate
+        let start = offset - lead
+        guard start >= 0 else { return whole }
 
-        let end = offset + Double(energies.count) * EchoReference.frameDuration
+        let end = offset + Double(samples.count + EchoGate.alignmentSpan) / Constants.sampleRate
         let deadline = Date().addingTimeInterval(Constants.referenceWaitLimit)
         while reference.coveredUntil < end {
-            guard Date() < deadline else { return .undecided }
+            guard Date() < deadline else { return whole }
             try? await Task.sleep(nanoseconds: Constants.referencePollInterval)
         }
 
-        guard let window = reference.envelope(
+        guard let window = reference.window(
             startingAt: start,
-            frameCount: energies.count + EchoGate.maximumLagFrames
-        ) else { return .undecided }
+            sampleCount: samples.count + EchoDelayEstimator.maximumDelay + 2 * EchoGate.alignmentSpan
+        ) else { return whole }
 
-        return EchoGate.isEcho(microphone: energies, reference: window) ? .echo : .speech
+        if learning {
+            observeDelay(samples: samples, window: window, estimator: delayEstimator)
+        }
+        guard let delay = delayEstimator.delay else { return whole }
+
+        // Slide the reference forward by the delay, so both spans describe the same moment of the
+        // meeting as the microphone heard it, with the slack the gate refines within.
+        let origin = EchoDelayEstimator.maximumDelay - delay
+        let aligned = Array(window[origin..<(origin + samples.count + 2 * EchoGate.alignmentSpan)])
+
+        let windows = classify(microphone: samples, reference: aligned)
+        let audible = windows.filter { $0 != .undecided }.count
+        guard audible > 0 else { return whole }
+
+        // Judging the utterance by one correlation over the whole of it lets its length dilute the
+        // answer: a leaked phrase carries the pause around it, and a long one outweighs its own
+        // evidence. Counting the windows that are leakage does not care how long the rest is.
+        let leakage = windows.filter { $0 == .echo }.count
+        let kept = keptRange(windows, count: samples.count)
+        guard Double(leakage) < Constants.leakageShare * Double(audible), !kept.isEmpty else {
+            return EchoDecision(verdict: .echo, kept: 0..<samples.count)
+        }
+
+        return EchoDecision(verdict: .speech, kept: kept)
     }
 
+    /// Feeds the head of the utterance to the delay estimator, a few windows at a time. One window
+    /// per utterance would take most of a meeting to converge; the whole utterance would let a
+    /// single long one dominate.
+    private static func observeDelay(
+        samples: [Float],
+        window: [Float],
+        estimator: EchoDelayEstimator
+    ) {
+        let available = samples.count / EchoDelayEstimator.windowSamples
+        for index in 0..<min(Constants.delayObservationsPerUtterance, available) {
+            let lower = index * EchoDelayEstimator.windowSamples
+            // `window` leads the utterance by the alignment slack as well, which the estimator
+            // does not expect — it searches the delay itself.
+            let referenceLower = lower + EchoGate.alignmentSpan
+            estimator.observe(
+                microphone: Array(samples[lower..<(lower + EchoDelayEstimator.windowSamples)]),
+                reference: Array(
+                    window[referenceLower..<(referenceLower + EchoDelayEstimator.referenceSamples)]
+                )
+            )
+        }
+    }
+
+    private static func isEcho(
+        _ range: Range<Int>,
+        microphone: [Float],
+        reference: [Float]
+    ) -> Bool {
+        EchoGate.isEcho(
+            microphone: Array(microphone[range]),
+            reference: Array(
+                reference[range.lowerBound..<(range.upperBound + 2 * EchoGate.alignmentSpan)]
+            )
+        )
+    }
+
+    /// Trims leakage off the ends of an utterance.
+    ///
+    /// It takes 800 ms of silence to close an utterance, which is longer than the pause between
+    /// one person finishing and the other answering. Without this, the far end's last words arrive
+    /// glued to the front of the reply and the whole thing is judged — and attributed — as one.
+    /// Walks the utterance in overlapping windows and labels each one.
+    ///
+    /// Silence gets its own answer rather than counting as speech. Every utterance ends in the
+    /// 800 ms of it the VAD needs to close, and a wholly leaked one would survive on that alone.
+    private static func classify(microphone: [Float], reference: [Float]) -> [EchoVerdict] {
+        let window = EchoGate.minimumSamples
+        guard microphone.count >= window else { return [] }
+
+        return stride(from: 0, through: microphone.count - window, by: Constants.frameSize)
+            .map { start in
+                let range = start..<(start + window)
+                guard rootMeanSquare(microphone[range]) > Constants.absoluteThreshold else {
+                    return .undecided
+                }
+                return isEcho(range, microphone: microphone, reference: reference) ? .echo : .speech
+            }
+    }
+
+    /// Trims leakage off the ends of an utterance, keeping everything from its first spoken window
+    /// to its last.
+    ///
+    /// It takes 800 ms of silence to close an utterance, which is longer than the pause between one
+    /// person finishing and the other answering. Without this, the far end's last words arrive glued
+    /// to the front of the reply and the whole thing is attributed as one. Ends without leakage are
+    /// left alone, so an ordinary utterance keeps the run-up the VAD deliberately captured.
+    private static func keptRange(_ windows: [EchoVerdict], count: Int) -> Range<Int> {
+        let step = Constants.frameSize
+
+        var first = 0
+        var leadingLeakage = false
+        while first < windows.count, windows[first] != .speech {
+            leadingLeakage = leadingLeakage || windows[first] == .echo
+            first += 1
+        }
+        guard first < windows.count else { return 0..<0 }
+
+        var last = windows.count - 1
+        var trailingLeakage = false
+        while last > first, windows[last] != .speech {
+            trailingLeakage = trailingLeakage || windows[last] == .echo
+            last -= 1
+        }
+
+        let lower = leadingLeakage ? first * step : 0
+        let upper = trailingLeakage ? min(count, last * step + EchoGate.minimumSamples) : count
+        return lower < upper ? lower..<upper : 0..<0
+    }
 }

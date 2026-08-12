@@ -2,7 +2,7 @@ import Foundation
 
 /// What the gate concluded about one microphone utterance.
 enum EchoVerdict {
-    /// Speaker leakage: it repeats the system envelope and sits far below it.
+    /// Speaker leakage: at the route's delay it is a copy of what the app was playing.
     case echo
     /// Compared against the system track and kept.
     case speech
@@ -10,42 +10,41 @@ enum EchoVerdict {
     case undecided
 }
 
-/// Decides whether a microphone utterance is speaker playback leaking back in rather than speech.
+/// Decides whether a microphone signal is speaker playback leaking back in rather than speech.
 ///
-/// Echo repeats the shape of the system track's loudness envelope, delayed by the acoustic path
-/// and heavily attenuated by it. Two conditions have to hold together before an utterance is
-/// dropped: the envelopes must correlate, and the microphone must be far quieter than the source.
-/// Real speech that overlaps playback fails the level test by a wide margin even when it happens
-/// to correlate, which is what keeps interjections in the transcript.
+/// Echo is the playback attenuated and coloured by the room, so shifted by the route's delay it
+/// still lines up with the reference sample for sample. Two people talking at once do not: their
+/// waveforms are unrelated whatever their levels. That makes the normalised cross-correlation the
+/// whole test, and a normalised measure is what carries between machines — speaker volume,
+/// microphone gain, distance and room all cancel out of it, and those are exactly what an absolute
+/// level threshold cannot survive.
 ///
 /// Thresholds are measured, not guessed — see `knowledge/echo-gate-calibration.md`.
 enum EchoGate {
-    /// Acoustic delay to search, 0…500 ms. Measured recordings peak at lag 0, but Bluetooth
-    /// output adds latency and the search costs a few hundred multiplications.
-    static let maximumLagFrames = 5
-    /// Shorter windows do not carry enough shape for a correlation to mean anything.
-    static let minimumFrames = 5
-    static let minimumCorrelation = 0.8
-    /// Decibels, microphone relative to the reference. Echo measured at −19 dB and below,
-    /// speech over playback at −13 dB and above.
-    static let maximumLevelDifference: Float = -18
+    /// Measured over whole utterances: echo 0.25…0.51, speech 0.00…0.15.
+    static let minimumCorrelation: Float = 0.25
+    /// Samples of slack around the estimated delay, ±6 ms. `EchoDelayEstimator` finds the route's
+    /// delay to within a few milliseconds, and the path itself moves a little between utterances;
+    /// searching the neighbourhood recovers what a single fixed alignment misses.
+    static let alignmentSpan = 96
+    /// Alignments are tried every 1 ms. Finer steps cost time and find nothing new.
+    static let alignmentStep = 16
     /// Decibels. Below this the reference is silence and there is nothing to have leaked.
     static let minimumReferenceLevel: Float = -50
+    /// 300 ms. Shorter windows do not carry enough signal for a correlation to mean anything.
+    static let minimumSamples = 4_800
 
-    /// `microphone` is the utterance's per-frame loudness; `reference` covers the same span
-    /// extended by `maximumLagFrames` at the front, so every lag can be tried.
+    /// `microphone` is the utterance; `reference` covers the same stretch of the meeting, already
+    /// shifted back by the route's delay and extended by `alignmentSpan` at both ends so the
+    /// alignment can be refined.
     static func isEcho(microphone: [Float], reference: [Float]) -> Bool {
-        guard microphone.count >= minimumFrames,
-              reference.count == microphone.count + maximumLagFrames
+        guard microphone.count >= minimumSamples,
+              reference.count == microphone.count + 2 * alignmentSpan
         else { return false }
 
-        for lag in 0...maximumLagFrames {
-            let start = maximumLagFrames - lag
+        for start in stride(from: 0, through: 2 * alignmentSpan, by: alignmentStep) {
             let candidate = Array(reference[start..<(start + microphone.count)])
-
-            guard decibels(rootMeanSquare(candidate)) >= minimumReferenceLevel,
-                  decibels(rootMeanSquare(microphone)) - decibels(rootMeanSquare(candidate)) <= maximumLevelDifference
-            else { continue }
+            guard decibels(rootMeanSquare(candidate)) >= minimumReferenceLevel else { continue }
 
             if correlation(microphone, candidate) >= minimumCorrelation { return true }
         }
@@ -53,9 +52,10 @@ enum EchoGate {
         return false
     }
 
-    /// Pearson correlation of the two envelopes: how alike their shapes are, regardless of level.
-    static func correlation(_ lhs: [Float], _ rhs: [Float]) -> Double {
-        guard lhs.count == rhs.count, lhs.count >= minimumFrames else { return 0 }
+    /// How much of one waveform is a scaled copy of the other, regardless of level. Taken as a
+    /// magnitude because some output paths invert polarity, which says nothing about the source.
+    static func correlation(_ lhs: [Float], _ rhs: [Float]) -> Float {
+        guard lhs.count == rhs.count, !lhs.isEmpty else { return 0 }
 
         let count = Double(lhs.count)
         let leftMean = lhs.reduce(0) { $0 + Double($1) } / count
@@ -73,10 +73,6 @@ enum EchoGate {
         }
 
         guard leftVariance > 0, rightVariance > 0 else { return 0 }
-        return covariance / (leftVariance * rightVariance).squareRoot()
-    }
-
-    private static func decibels(_ value: Float) -> Float {
-        20 * log10(max(value, 1e-6))
+        return Float(abs(covariance / (leftVariance * rightVariance).squareRoot()))
     }
 }

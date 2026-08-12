@@ -136,14 +136,18 @@ microphone, so two additional stages refine that attribution.
 ### Echo gate
 
 The echo gate runs before recognition. Because both tracks share a timeline, each microphone
-utterance can be compared with the loudness envelope of the system track. Playback leakage repeats
-the shape of the system audio after a short room delay and at a much lower level.
+utterance can be compared against what the app was playing at that moment. Leakage is that playback
+attenuated by the room, so once the acoustic delay is known it still matches the system track sample
+for sample, while two people talking at once never do.
 
-An utterance whose shape matches playback and sits at least 18 dB below it is treated as leakage and
-does not reach Whisper. Louder speech that overlaps playback is designed to fail the level test and
-be kept. With headphones, or without a system track, the gate simply does not fire.
+The app measures that delay from the recording itself, over the first few utterances with audible
+playback. After that it labels each 300 ms of an utterance as silence, leakage or speech. An
+utterance that is half leakage does not reach Whisper at all; one that merely begins or ends with
+leakage — the far end's last words, picked up before the reply starts — has that part trimmed off
+and keeps the rest. Level plays no part in the decision, so speech is kept however quiet it is.
 
-The recording window shows how many utterances the gate has compared and filtered. The gate can be
+With headphones, without a system track, or before the delay has been measured, the gate does not
+fire. The recording window shows how many utterances it has compared and filtered. It can be
 disabled in Settings, which removes the reference buffer and the wait of up to half a second for the
 system track to catch up. Thresholds and calibration measurements are documented in
 [echo-gate-calibration.md](../knowledge/echo-gate-calibration.md).

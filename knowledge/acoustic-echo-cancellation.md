@@ -12,10 +12,16 @@ comes through at full strength, amplified by ~19 dB relative to a plain capture.
 implemented, verified end to end, and then measured to be actively harmful.
 
 The AEC option and the whole VPIO capture path were removed on 2026-08-01. What replaced them is
-the echo gate — see [echo-gate-calibration.md](echo-gate-calibration.md) — which compares the two
-tracks' loudness envelopes and skips leaked utterances before recognition, backed by transcript
-deduplication ([TranscriptDeduplicator.swift](../Sources/MeetingHelper/Transcription/TranscriptDeduplicator.swift)).
+the echo gate — see [echo-gate-calibration.md](echo-gate-calibration.md) — which correlates the two
+tracks at the route's measured delay and skips leaked utterances before recognition, backed by
+transcript deduplication ([TranscriptDeduplicator.swift](../Sources/MeetingHelper/Transcription/TranscriptDeduplicator.swift)).
 Neither depends on Core Audio behaving.
+
+Note for anyone reviving cancellation: the gate now measures the speaker-to-microphone delay and
+finds it stable at about 22 ms on this machine
+([EchoDelayEstimator.swift](../Sources/MeetingHelper/Audio/EchoDelayEstimator.swift)), which removes
+one of the two hard parts listed under [dead ends](#dead-ends--do-not-retry). Clock-drift tracking
+is still unsolved, and detection remains enough for a transcript.
 
 ## Test machine
 

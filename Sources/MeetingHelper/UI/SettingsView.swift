@@ -102,7 +102,7 @@ struct SettingsView: View {
                     set: { controller.settings.echoGateEnabled = $0 }
                 ))
 
-                Text("Compares each microphone phrase against the system audio and skips the ones that are only playback leaking back in. A phrase waits up to half a second for the system track before it is recognized; turn this off to send the microphone straight to recognition. Takes effect when the next recording starts.")
+                Text("Compares each microphone phrase against the system audio, skips the ones that are only playback leaking back in, and trims leaked words off the start of a reply. A phrase waits up to half a second for the system track before it is recognized; turn this off to send the microphone straight to recognition. Takes effect when the next recording starts.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

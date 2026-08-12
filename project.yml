@@ -126,4 +126,10 @@ schemes:
     test:
       targets:
         - MeetingHelperTests
+  MeetingHelperUITests:
+    build:
+      targets:
+        MeetingHelper: all
+    test:
+      targets:
         - MeetingHelperUITests

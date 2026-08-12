@@ -10,3 +10,8 @@ func rootMeanSquare<Samples: Collection>(_ samples: Samples) -> Float where Samp
     for sample in samples { sum += sample * sample }
     return (sum / Float(samples.count)).squareRoot()
 }
+
+/// An amplitude as decibels relative to full scale, floored at −120 dB so silence stays finite.
+func decibels(_ value: Float) -> Float {
+    20 * log10(max(value, 1e-6))
+}
