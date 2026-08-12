@@ -71,6 +71,7 @@ struct MeetingDetailView: View {
                     }
                     Button("Copy transcript") { copyTranscript() }
                         .disabled(lines.isEmpty)
+                    Button("Copy meeting ID") { copyMeetingID() }
                     Divider()
                     Button("Delete meeting", role: .destructive) {
                         deleteMeeting()
@@ -194,5 +195,10 @@ struct MeetingDetailView: View {
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func copyMeetingID() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(meeting.id.uuidString, forType: .string)
     }
 }
