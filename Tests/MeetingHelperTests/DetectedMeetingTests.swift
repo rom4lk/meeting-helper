@@ -19,6 +19,29 @@ final class DetectedMeetingTests: XCTestCase {
         XCTAssertEqual(chrome.audioSourceDisplayName, "Google Chrome")
     }
 
+    func testMicrophoneAppUsesItsResolvedApplicationName() {
+        let meeting = DetectedMeeting(
+            kind: .microphoneApp,
+            title: "Calls call",
+            audioPrefixes: ["com.example.calls"],
+            detectedAt: Date(),
+            triggerBundleID: "com.example.calls",
+            audioSourceName: "Calls"
+        )
+
+        XCTAssertFalse(meeting.capturesAllSystemAudio)
+        XCTAssertEqual(meeting.audioSourceDisplayName, "Calls")
+    }
+
+    func testMicrophoneAppKindRoundTripsThroughMetadataEncoding() throws {
+        let data = try JSONEncoder().encode(DetectedMeeting.Kind.microphoneApp)
+
+        XCTAssertEqual(
+            try JSONDecoder().decode(DetectedMeeting.Kind.self, from: data),
+            .microphoneApp
+        )
+    }
+
     private func detectedMeeting(
         kind: DetectedMeeting.Kind,
         audioPrefixes: [String]

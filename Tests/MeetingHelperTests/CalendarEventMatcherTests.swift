@@ -145,12 +145,25 @@ final class CalendarEventMatcherTests: XCTestCase {
         ))
     }
 
-    func testUnrelatedEventRunningAtTheSameTimeDoesNotMatch() {
-        let unrelated = event(title: "Dentist", startsIn: -5)
+    func testSingleCalendarEventMatchesWithoutWindowTitleOverlap() {
+        let calendarEvent = event(title: "Quarterly roadmap review", startsIn: -5)
+
+        let match = CalendarEventMatcher.bestMatch(
+            for: meeting("Meeting info", kind: .zoom),
+            in: [calendarEvent]
+        )
+
+        XCTAssertEqual(match?.event.title, "Quarterly roadmap review")
+        XCTAssertEqual(match?.isConfident, true)
+    }
+
+    func testMultipleCalendarEventsWithoutADistinguishingSignalDoNotMatch() {
+        let first = event(id: "first", title: "Dentist", startsIn: -5)
+        let second = event(id: "second", title: "Focus time", startsIn: -5)
 
         XCTAssertNil(CalendarEventMatcher.bestMatch(
-            for: meeting("Weekly sync"),
-            in: [unrelated]
+            for: meeting("Meeting info", kind: .zoom),
+            in: [first, second]
         ))
     }
 

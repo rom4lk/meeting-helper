@@ -4,8 +4,7 @@ import Foundation
 ///
 /// The signals differ sharply in strength, so they are scored rather than combined into one test.
 /// A conference code shared between the window title and the event's join link is proof; a similar
-/// title is an argument; overlapping in time is barely more than a coincidence, since a busy
-/// calendar has something running at almost any moment.
+/// title distinguishes otherwise overlapping events; time defines which events are candidates.
 ///
 /// Everything here is a pure function of its arguments so the decisions stay testable without a
 /// network or a running meeting.
@@ -24,8 +23,7 @@ enum CalendarEventMatcher {
     private static let conferenceCodeScore = 100
     private static let titleScore = 60
     private static let insideIntervalScore = 20
-    /// A single candidate that is actually running is usually right, but not by enough of a margin
-    /// to rename a recording behind the user's back.
+    /// Multiple calendar candidates still need a strong signal to distinguish them.
     private static let confidentScore = 60
 
     /// Ranks the events that could be this meeting, best first.
@@ -46,14 +44,24 @@ enum CalendarEventMatcher {
         }
     }
 
-    /// The single confident event, or `nil` when the evidence is weak or ambiguous.
+    /// The best unambiguous event, or `nil` when the calendar cannot identify one.
+    ///
+    /// A single event in the time window is enough because calendar metadata is the preferred
+    /// source for a recording. Stronger title and conference-code signals are only needed to pick
+    /// between multiple simultaneous events.
     static func bestMatch(for meeting: DetectedMeeting, in events: [CalendarEvent]) -> Match? {
         let ranked = candidates(for: meeting, in: events)
-        guard let best = ranked.first, best.isConfident else { return nil }
+        guard let best = ranked.first else { return nil }
+
+        if ranked.count == 1 {
+            return Match(event: best.event, score: best.score, isConfident: true)
+        }
+
+        guard best.isConfident else { return nil }
 
         // A tie between two events is not a match. Renaming the recording after the wrong one is
         // worse than leaving the window title in place.
-        if ranked.count > 1, ranked[1].score == best.score {
+        if ranked[1].score == best.score {
             return nil
         }
         return best

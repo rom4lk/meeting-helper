@@ -134,6 +134,7 @@ struct MeetingDetailView: View {
         switch meeting.kind {
         case .zoom: return "video.fill"
         case .googleMeet, .ktalk: return "globe"
+        case .microphoneApp: return "mic.fill"
         case .manual: return "hand.tap.fill"
         case .unknown: return "questionmark.circle"
         }

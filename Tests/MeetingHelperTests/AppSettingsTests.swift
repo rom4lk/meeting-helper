@@ -3,6 +3,46 @@ import XCTest
 
 @MainActor
 final class AppSettingsTests: XCTestCase {
+    func testDetectionDefaultsToRecognizedMeetings() {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = AppSettings(defaults: defaults)
+
+        XCTAssertEqual(settings.detectionMode, .recognizedMeetings)
+        XCTAssertTrue(settings.selectedMicrophoneAppBundleIDs.isEmpty)
+        XCTAssertTrue(settings.excludedMicrophoneAppBundleIDs.isEmpty)
+    }
+
+    func testMicrophoneDetectionSettingsPersist() {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = AppSettings(defaults: defaults)
+        settings.detectionMode = .anyMicrophoneApp
+        settings.selectedMicrophoneAppBundleIDs = ["com.example.selected"]
+        settings.excludedMicrophoneAppBundleIDs = ["com.example.excluded"]
+
+        let restored = AppSettings(defaults: defaults)
+
+        XCTAssertEqual(restored.detectionMode, .anyMicrophoneApp)
+        XCTAssertEqual(restored.selectedMicrophoneAppBundleIDs, ["com.example.selected"])
+        XCTAssertEqual(restored.excludedMicrophoneAppBundleIDs, ["com.example.excluded"])
+    }
+
+    func testUnknownDetectionModeFallsBackToRecognizedMeetings() {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("unsupported", forKey: "detectionMode")
+
+        let settings = AppSettings(defaults: defaults)
+
+        XCTAssertEqual(settings.detectionMode, .recognizedMeetings)
+    }
+
     func testParakeetMultilingualModelIsAvailable() {
         XCTAssertTrue(AppSettings.availableModels.contains { model in
             model.id == AppSettings.parakeetModelID

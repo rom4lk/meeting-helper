@@ -21,9 +21,52 @@ struct SettingsView: View {
                         controller.detector.autoDetectionEnabled = $0
                     }
                 ))
-                Text("Zoom is detected by its meeting helper process, Google Meet and Ktalk — by the browser microphone and the tab title.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+
+                Picker("Detection mode", selection: Binding(
+                    get: { controller.settings.detectionMode },
+                    set: { controller.setDetectionMode($0) }
+                )) {
+                    ForEach(AppSettings.DetectionMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(!controller.settings.autoDetectionEnabled || controller.isRecording)
+
+                switch controller.settings.detectionMode {
+                case .recognizedMeetings:
+                    Text("Zoom is detected by its meeting helper process, Google Meet and Ktalk by the browser microphone and tab title.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                case .selectedMicrophoneApps:
+                    microphoneApplicationList(
+                        bundleIDs: controller.settings.selectedMicrophoneAppBundleIDs,
+                        emptyText: "No applications selected. Recognized Zoom, Google Meet, and Ktalk meetings are still detected.",
+                        addLabel: "Add Applications…",
+                        addAction: controller.chooseSelectedMicrophoneApplications,
+                        removeAction: controller.removeSelectedMicrophoneApplication
+                    )
+                    Text("Recording starts after a selected application uses the microphone continuously for two checks and stops after three checks without microphone activity.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                case .anyMicrophoneApp:
+                    microphoneApplicationList(
+                        bundleIDs: controller.settings.excludedMicrophoneAppBundleIDs,
+                        emptyText: "No applications excluded.",
+                        addLabel: "Exclude Applications…",
+                        addAction: controller.chooseExcludedMicrophoneApplications,
+                        removeAction: controller.removeExcludedMicrophoneApplication
+                    )
+                    Text("Any application using the microphone can start a recording unless it is excluded. This can include dictation, voice messages, and microphone tests.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                if controller.isRecording {
+                    Text("Detection settings cannot be changed during a recording.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Recording") {
@@ -212,6 +255,45 @@ struct SettingsView: View {
     private var calendarAccountSummary: String {
         let titles = controller.calendar.accountTitles
         return titles.isEmpty ? "None with calendars" : titles.joined(separator: ", ")
+    }
+
+    @ViewBuilder
+    private func microphoneApplicationList(
+        bundleIDs: Set<String>,
+        emptyText: String,
+        addLabel: String,
+        addAction: @escaping () -> Void,
+        removeAction: @escaping (String) -> Void
+    ) -> some View {
+        if bundleIDs.isEmpty {
+            Text(emptyText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(bundleIDs.sorted(by: applicationSort), id: \.self) { bundleID in
+                HStack {
+                    Text(controller.applicationDisplayName(forBundleID: bundleID))
+                    Spacer()
+                    Button {
+                        removeAction(bundleID)
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Remove \(controller.applicationDisplayName(forBundleID: bundleID))")
+                    .disabled(controller.isRecording)
+                }
+            }
+        }
+
+        Button(addLabel, action: addAction)
+            .disabled(controller.isRecording)
+    }
+
+    private func applicationSort(_ left: String, _ right: String) -> Bool {
+        controller.applicationDisplayName(forBundleID: left).localizedCaseInsensitiveCompare(
+            controller.applicationDisplayName(forBundleID: right)
+        ) == .orderedAscending
     }
 
     @ViewBuilder

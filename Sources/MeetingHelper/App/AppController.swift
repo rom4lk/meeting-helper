@@ -4,6 +4,7 @@ import Carbon.HIToolbox
 import Combine
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 final class AppController: ObservableObject {
@@ -97,6 +98,7 @@ final class AppController: ObservableObject {
         detector.onStop = { [weak self] in
             self?.stopRecording(manually: false)
         }
+        syncDetectionSettings()
         detector.autoDetectionEnabled = settings.autoDetectionEnabled
 
         registerHotkeys()
@@ -166,6 +168,78 @@ final class AppController: ObservableObject {
         refreshPermissions()
         guard !accessibilityGranted else { return }
         WindowTitles.openSystemSettings()
+    }
+
+    // MARK: - Meeting detection
+
+    func setDetectionMode(_ mode: AppSettings.DetectionMode) {
+        settings.detectionMode = mode
+        syncDetectionSettings()
+    }
+
+    func chooseSelectedMicrophoneApplications() {
+        chooseApplications { [weak self] bundleIDs in
+            guard let self else { return }
+            settings.selectedMicrophoneAppBundleIDs.formUnion(bundleIDs)
+            syncDetectionSettings()
+        }
+    }
+
+    func chooseExcludedMicrophoneApplications() {
+        chooseApplications { [weak self] bundleIDs in
+            guard let self else { return }
+            settings.excludedMicrophoneAppBundleIDs.formUnion(bundleIDs)
+            syncDetectionSettings()
+        }
+    }
+
+    func removeSelectedMicrophoneApplication(bundleID: String) {
+        settings.selectedMicrophoneAppBundleIDs.remove(bundleID)
+        syncDetectionSettings()
+    }
+
+    func removeExcludedMicrophoneApplication(bundleID: String) {
+        settings.excludedMicrophoneAppBundleIDs.remove(bundleID)
+        syncDetectionSettings()
+    }
+
+    func applicationDisplayName(forBundleID bundleID: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
+              let bundle = Bundle(url: url)
+        else { return bundleID }
+
+        return (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+            ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
+            ?? bundleID
+    }
+
+    private func syncDetectionSettings() {
+        detector.detectionMode = settings.detectionMode
+        detector.selectedMicrophoneAppBundleIDs = settings.selectedMicrophoneAppBundleIDs
+        detector.excludedMicrophoneAppBundleIDs = settings.excludedMicrophoneAppBundleIDs
+    }
+
+    private func chooseApplications(onSelection: @escaping ([String]) -> Void) {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Applications"
+        panel.message = "Choose one or more applications."
+        panel.prompt = "Choose"
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.resolvesAliases = true
+
+        panel.begin { [weak self] response in
+            guard response == .OK else { return }
+            let bundleIDs = panel.urls.compactMap { Bundle(url: $0)?.bundleIdentifier }
+            guard !bundleIDs.isEmpty else {
+                self?.errorMessage = "The selected applications do not have bundle identifiers."
+                return
+            }
+            onSelection(bundleIDs)
+        }
     }
 
     // MARK: - Transcription model

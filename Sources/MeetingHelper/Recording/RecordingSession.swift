@@ -85,7 +85,10 @@ final class RecordingSession: ObservableObject {
     func apply(_ match: CalendarEventMatcher.Match) {
         guard match.isConfident else { return }
         calendar = MeetingCalendarInfo(event: match.event)
-        title = match.event.title
+        let calendarTitle = match.event.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !calendarTitle.isEmpty {
+            title = calendarTitle
+        }
     }
 
     // MARK: - Lifecycle

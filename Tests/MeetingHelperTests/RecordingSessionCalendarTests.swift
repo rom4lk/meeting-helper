@@ -44,6 +44,15 @@ final class RecordingSessionCalendarTests: XCTestCase {
         XCTAssertEqual(session.calendar?.title, "Quarterly roadmap review")
     }
 
+    func testAnEmptyCalendarTitleKeepsTheWindowTitleAndAttendees() {
+        let session = makeSession(title: "Zoom topic")
+
+        session.apply(match(title: "  ", isConfident: true))
+
+        XCTAssertEqual(session.title, "Zoom topic")
+        XCTAssertEqual(session.calendar?.attendees.first?.email, "ivan@example.com")
+    }
+
     func testAnUncertainMatchIsIgnored() {
         let session = makeSession()
 

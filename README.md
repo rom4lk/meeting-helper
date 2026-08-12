@@ -6,7 +6,8 @@ and stop recording automatically, and keep a live transcript visible while you w
 ## Features
 
 - Automatic meeting detection for Zoom, and for Google Meet and Ktalk in Chrome, Arc, Edge, and
-  Safari.
+  Safari. Optional modes can also start recording when selected applications, or any application
+  except an exclusion list, use the microphone.
 - Separate microphone and meeting-audio tracks, labelled as "Me" and "Others" in the transcript.
 - On-device transcription with WhisperKit or multilingual Parakeet TDT v3.
 - An optional always-on-top transcript panel with real-time preview updates.
@@ -133,7 +134,9 @@ microphone, play some system audio, stop the recording, and verify both tracks i
 
 Meeting Helper detects Zoom directly and identifies Google Meet and Ktalk calls in Chrome, Arc,
 Edge, and Safari using microphone activity and window titles. Ktalk is recognized on any host,
-including an organization's own one such as `example.ktalk.ru`.
+including an organization's own one such as `example.ktalk.ru`. The detection setting can instead
+watch selected applications or any application that opens an input audio stream. The broad mode has
+an exclusion list for applications such as dictation tools and voice recorders.
 
 Automatic recordings capture audio only from the detected meeting app. Manual recordings capture
 all system audio. The microphone and meeting audio are stored separately, which lets the transcript
@@ -142,9 +145,10 @@ distinguish "Me" from "Others".
 Transcription runs locally with WhisperKit or Parakeet TDT v3. Echo filtering and transcript
 deduplication reduce speaker leakage and duplicate lines.
 
-When calendar access is granted, a starting recording is matched to a calendar event by the
-conference link, the title, and the time. Events are read locally through EventKit, so nothing in
-the app talks to a network service and everything stays on the Mac. See
+When calendar access is granted, calendar metadata is preferred: a recording takes its title and
+participant list from the matching event. The window title is used only when no calendar event can
+be identified or the event has no title. Events are matched by the conference link, title, and time,
+and are read locally through EventKit, so nothing in the app talks to a network service. See
 [docs/how-it-works.md](docs/how-it-works.md) for the implementation details.
 
 ## Permissions

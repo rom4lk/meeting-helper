@@ -5,13 +5,14 @@ attribution, and transcription. For installation and usage, see the [README](../
 
 ## Meeting detection
 
-Meeting Helper combines three signals, from precise to general.
+Meeting Helper combines four signals, from precise to general.
 
 | Layer | Signal | What it covers |
 |---|---|---|
 | Meeting process | Presence of `us.zoom.CptHost` | Zoom, native client |
 | Process audio activity | `kAudioProcessPropertyIsRunningInput` over a bundle ID family | The browser is holding the microphone |
 | Window title | Accessibility API | Distinguishes a meeting tab from other tabs and provides the meeting title |
+| General input activity | `kAudioProcessPropertyIsRunningInput` for an application process | Optional selected-app and any-app modes |
 
 Zoom spawns the `CptHost` helper process for the duration of a conference and terminates it when the
 user leaves. This gives the app a precise start and end signal, unlike general microphone activity,
@@ -26,6 +27,27 @@ Browser meetings do not have an equivalent helper process. Meeting Helper theref
 microphone activity and a window that one of the `BrowserMeetingService` entries claims. Without
 Accessibility access, browser meeting detection is unavailable, while Zoom detection continues to
 work.
+
+Settings offers three detection modes. **Recognized meetings** is the default and uses only the
+Zoom and browser signals above. **Selected apps using the microphone** also starts a recording when
+one of the chosen application bundle ID families has an active input stream. **Any app using the
+microphone** accepts every identifiable application except the configured exclusions. The app
+process is always excluded because Meeting Helper itself opens the microphone after recording
+starts.
+
+General microphone activity must remain present for two consecutive two-second polls before a
+recording starts. The same application must then be absent for three consecutive polls before it
+stops. The asymmetric debounce ignores short microphone tests and prevents an audio route change
+from splitting one call into several recordings. When several applications hold the microphone,
+the detector keeps tracking the application that caused the start; another active application does
+not keep that recording alive.
+
+An application selected in Settings is stored by bundle ID rather than display name. Helper
+processes are mapped back to their outer `.app` bundle when possible, and every matching Core Audio
+process is included in the process-scoped output tap. Processes that cannot be mapped to an
+application are ignored in the any-app mode so a Core Audio daemon cannot create a permanent false
+meeting. The precise Zoom and recognized-browser paths run before general microphone detection, so
+they keep their better titles and known audio bundle families when both signals are available.
 
 Each service is described by a title test and the host of its installed PWA:
 
@@ -266,15 +288,19 @@ The signals differ sharply in strength, so they are scored rather than combined 
 |---|---|---|
 | Shared conference code | 100 | A Google Meet window title carries the meeting code, and the event carries the same code in its join link. Two independent sources agreeing on `abc-defg-hij` is not a coincidence. |
 | Title overlap | up to 60 | The tab title or Zoom topic is usually the event's name, but rarely character for character. Overlap of significant words survives a prefix, a suffix or a reordering. |
-| Detected inside the event | 20 | A busy calendar has something running at almost any moment, so this alone means little. |
+| Detected inside the event | 20 | Favors an event already in progress; time alone selects it only when there is no alternative candidate. |
 
 Candidates are limited to events that the recording starts within ten minutes of — people join early
-and calls run over. Zoom has no equivalent of the Meet code, since its window shows the topic rather
-than the numeric meeting id, so a Zoom call is matched on title and time alone.
+and calls run over. A single candidate in that window is selected even when its title differs from
+the meeting window, because calendar metadata is the preferred source. Zoom has no equivalent of
+the Meet code, since its window shows the topic rather than the numeric meeting id, so multiple Zoom
+candidates are distinguished by title and time alone.
 
-A match below the confidence threshold, or a tie between two events, is ignored. This prevents a
-recording from keeping and synchronizing the attendee list of an unrelated event. Matching runs once,
-as the recording starts, so a title the user types afterwards is never at risk of being overwritten.
+When multiple events are candidates, a match below the confidence threshold or a tie is ignored.
+The recording then keeps the window title and no participant list rather than choosing an ambiguous
+event. An empty calendar title also falls back to the window title while retaining the event's
+participant list. Matching runs once, as the recording starts, so a title the user types afterwards
+is never at risk of being overwritten.
 
 The same event invited to both a work and a personal account arrives twice. Duplicates are collapsed
 by `iCalUID` together with the start time, keeping the copy from the calendar where the invitation

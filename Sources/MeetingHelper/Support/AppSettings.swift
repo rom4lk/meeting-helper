@@ -2,6 +2,22 @@ import Foundation
 
 @MainActor
 final class AppSettings: ObservableObject {
+    enum DetectionMode: String, CaseIterable, Identifiable {
+        case recognizedMeetings
+        case selectedMicrophoneApps
+        case anyMicrophoneApp
+
+        var id: String { rawValue }
+
+        var displayName: String {
+            switch self {
+            case .recognizedMeetings: return "Recognized meetings"
+            case .selectedMicrophoneApps: return "Selected apps using the microphone"
+            case .anyMicrophoneApp: return "Any app using the microphone"
+            }
+        }
+    }
+
     enum ICloudSyncLimit: Int, CaseIterable, Identifiable {
         case disabled = 0
         case ten = 10
@@ -72,6 +88,19 @@ final class AppSettings: ObservableObject {
     static let minimumRecordingDurations = [5, 10, 30, 60, 300]
 
     @Published var autoDetectionEnabled: Bool { didSet { defaults.set(autoDetectionEnabled, forKey: Keys.autoDetection) } }
+    @Published var detectionMode: DetectionMode {
+        didSet { defaults.set(detectionMode.rawValue, forKey: Keys.detectionMode) }
+    }
+    @Published var selectedMicrophoneAppBundleIDs: Set<String> {
+        didSet {
+            defaults.set(selectedMicrophoneAppBundleIDs.sorted(), forKey: Keys.selectedMicrophoneApps)
+        }
+    }
+    @Published var excludedMicrophoneAppBundleIDs: Set<String> {
+        didSet {
+            defaults.set(excludedMicrophoneAppBundleIDs.sorted(), forKey: Keys.excludedMicrophoneApps)
+        }
+    }
     @Published var liveTranscriptEnabled: Bool { didSet { defaults.set(liveTranscriptEnabled, forKey: Keys.liveTranscript) } }
     /// Whether the live views show the microphone track. Off hides those lines while a recording
     /// runs; the transcript is still recognized and saved in full.
@@ -100,6 +129,9 @@ final class AppSettings: ObservableObject {
 
     private enum Keys {
         static let autoDetection = "autoDetectionEnabled"
+        static let detectionMode = "detectionMode"
+        static let selectedMicrophoneApps = "selectedMicrophoneAppBundleIDs"
+        static let excludedMicrophoneApps = "excludedMicrophoneAppBundleIDs"
         static let liveTranscript = "liveTranscriptEnabled"
         static let liveTranscriptShowsMySpeech = "liveTranscriptShowsMySpeech"
         static let realtimeTranscript = "realtimeTranscriptEnabled"
@@ -130,6 +162,11 @@ final class AppSettings: ObservableObject {
         ])
 
         autoDetectionEnabled = defaults.bool(forKey: Keys.autoDetection)
+        detectionMode = DetectionMode(
+            rawValue: defaults.string(forKey: Keys.detectionMode) ?? ""
+        ) ?? .recognizedMeetings
+        selectedMicrophoneAppBundleIDs = Set(defaults.stringArray(forKey: Keys.selectedMicrophoneApps) ?? [])
+        excludedMicrophoneAppBundleIDs = Set(defaults.stringArray(forKey: Keys.excludedMicrophoneApps) ?? [])
         liveTranscriptEnabled = defaults.bool(forKey: Keys.liveTranscript)
         liveTranscriptShowsMySpeech = defaults.bool(forKey: Keys.liveTranscriptShowsMySpeech)
         realtimeTranscriptEnabled = defaults.bool(forKey: Keys.realtimeTranscript)
