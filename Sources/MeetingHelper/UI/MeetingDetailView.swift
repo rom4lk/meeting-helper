@@ -83,7 +83,7 @@ struct MeetingDetailView: View {
             }
 
             HStack(spacing: 12) {
-                Label(meeting.kind.displayName, systemImage: icon)
+                Label(meeting.kindDisplayName, systemImage: icon)
                 Text(meeting.startedAt.formatted(date: .abbreviated, time: .shortened))
                 Text(meeting.formattedDuration)
                 if let model = meeting.transcriptionModel {
@@ -91,6 +91,13 @@ struct MeetingDetailView: View {
                         "Transcription: \(AppSettings.displayName(forModel: model))",
                         systemImage: "waveform"
                     )
+                }
+                if let segments = meeting.mergedSegments, !segments.isEmpty {
+                    Label(
+                        "Merged from \(segments.count) recordings",
+                        systemImage: "arrow.triangle.merge"
+                    )
+                    .help(mergedSegmentsSummary(segments))
                 }
                 if let calendar = meeting.calendar {
                     CalendarParticipantsLabel(info: calendar)
@@ -130,14 +137,22 @@ struct MeetingDetailView: View {
         }
     }
 
+    /// A merged meeting stores the kinds it was made of joined together, which `Kind` reads back as
+    /// `.unknown`, so the icon comes from the first recording that went into it.
     private var icon: String {
-        switch meeting.kind {
+        switch meeting.mergedSegments?.first?.kind ?? meeting.kind {
         case .zoom: return "video.fill"
         case .googleMeet, .ktalk: return "globe"
         case .microphoneApp: return "mic.fill"
         case .manual: return "hand.tap.fill"
         case .unknown: return "questionmark.circle"
         }
+    }
+
+    private func mergedSegmentsSummary(_ segments: [MergedMeetingSegment]) -> String {
+        segments
+            .map { "\($0.title) — \($0.startedAt.formatted(date: .abbreviated, time: .shortened))" }
+            .joined(separator: "\n")
     }
 
     private func load() {

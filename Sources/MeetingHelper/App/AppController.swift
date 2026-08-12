@@ -16,6 +16,7 @@ final class AppController: ObservableObject {
 
     @Published private(set) var session: RecordingSession?
     @Published private(set) var isStopping = false
+    @Published private(set) var isMerging = false
     @Published var errorMessage: String?
     @Published private(set) var systemAudioPermission = SystemAudioPermission.status()
     @Published private(set) var accessibilityGranted = WindowTitles.isTrusted
@@ -537,6 +538,55 @@ final class AppController: ObservableObject {
         self.pendingStart = nil
         guard detector.current == pendingStart else { return }
         startRecording(for: pendingStart)
+    }
+
+    // MARK: - Merging
+
+    /// Joins saved recordings into a single meeting, placed back to back with no gap between them.
+    ///
+    /// Returns the merged meeting's id, or `nil` when the merge did not happen.
+    @discardableResult
+    func mergeMeetings(
+        _ meetings: [Meeting],
+        title: String,
+        deletesOriginals: Bool
+    ) async -> UUID? {
+        // Merging reads and rewrites hundreds of megabytes, which has no business competing with a
+        // capture in progress.
+        guard !isRecording, !isStopping, !isMerging, meetings.count >= 2 else { return nil }
+
+        isMerging = true
+        defer { isMerging = false }
+
+        let root = store.libraryRoot
+        do {
+            let plan = try MeetingMerge.plan(merging: meetings, title: title, in: root)
+            let transcripts = Dictionary(
+                uniqueKeysWithValues: meetings.map { ($0.id, store.transcript(for: $0.id)) }
+            )
+            let lines = MeetingMerge.transcript(for: plan, transcripts: transcripts)
+
+            try await Task.detached(priority: .utility) {
+                try MeetingMerge.perform(plan, in: root)
+            }.value
+
+            try store.save(plan.meeting)
+            try store.saveTranscript(lines, for: plan.meeting.id)
+
+            // Only once the merged meeting is on disk, and always through the store: a directory
+            // removed behind its back leaves no tombstone, and the synchronised copies of the
+            // originals would come back at the next reconciliation.
+            if deletesOriginals {
+                for meeting in meetings {
+                    store.delete(meeting)
+                }
+            }
+            return plan.meeting.id
+        } catch {
+            errorMessage = "Cannot merge the recordings: \(error.localizedDescription)"
+            Log.store.error("Cannot merge recordings: \(error, privacy: .public)")
+            return nil
+        }
     }
 
     // MARK: - Floating panel

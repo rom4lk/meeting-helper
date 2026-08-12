@@ -101,6 +101,43 @@ and written separately:
 When the app is asked to quit during a recording, it delays termination until capture has stopped,
 the transcription backlog has drained, and the meeting files have been finalized.
 
+### Merging recordings
+
+Several saved recordings can be joined into one meeting. The result is a new meeting with its own
+identifier and directory, built by actually concatenating the tracks, so everything downstream —
+playback, transcript, synchronization, retention — keeps treating a meeting directory as
+self-contained.
+
+The two tracks of a recording rarely have the same length: the process tap attaches once the meeting
+app touches audio, and neither source stops on the same buffer. Each recording therefore gets a
+*span*, the longer of its two tracks as they are on disk, and both tracks are padded with silence to
+fill it before the next recording is appended. `Meeting.duration` is not used for this — it also
+counts the wall clock and is almost always longer than either track. Because both tracks of a
+segment end up the same length, one shift moves that segment's whole transcript onto the merged
+timeline, `Me` and `Others` alike. A recording with no track of a kind contributes silence for its
+whole span, which keeps the other track from sliding forward.
+
+Recordings are joined back to back with no gap: the time between two recordings is dropped, so a
+merged meeting's `duration` no longer matches the wall-clock interval it covers. When the recordings
+overlap in time, the sheet says so and joins them back to back anyway. The moment each part was
+actually recorded survives in `Meeting.mergedSegments`, which also carries the offset and length of
+every part; merging a merged meeting splices those parts in rather than collapsing them.
+
+Recordings of one meeting normally agree on their kind and transcription model. When they do not,
+both raw values are kept, joined with ` + `. A combined kind decodes as `DetectedMeeting.Kind`'s
+`unknown` case, which older versions of the app — and the synchronization engine, which fails on
+metadata it cannot decode — read without complaint. The transcript format is deliberately left
+untouched: `TranscriptSource` has no tolerant decoding, so an added value there would cost a whole
+transcript on a Mac running an older version.
+
+The merged recording is assembled in a hidden staging directory, and the mixdown is rebuilt from the
+joined tracks rather than joined from the sources' own `mix.m4a` files, whose encoder delay would
+drift away from the transcript. The staging directory is moved into place before `meeting.json` is
+written, so a synchronization running at the same time skips the directory instead of copying half a
+meeting. Only after the merged meeting is saved are the originals removed, and always through
+`MeetingStore`, which records the deletion markers the sync folder needs — a directory removed behind
+its back would come back at the next reconciliation.
+
 ### Folder-based synchronization
 
 The local Application Support directory remains the working library. Recording never writes into a

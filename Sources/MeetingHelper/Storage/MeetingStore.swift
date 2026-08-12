@@ -14,6 +14,9 @@ final class MeetingStore: ObservableObject {
     /// Injectable so tests run against a temporary directory instead of the real library.
     private let root: URL
 
+    /// Where this store keeps its meetings, for the operations that work on the library as a whole.
+    var libraryRoot: URL { root }
+
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

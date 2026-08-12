@@ -222,8 +222,13 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// A merged meeting can carry the models of every recording it was made of, joined together,
+    /// so each part is named on its own.
     static func displayName(forModel model: String) -> String {
-        availableModels.first { $0.id == model }?.shortName ?? model
+        model
+            .components(separatedBy: MeetingMerge.valueSeparator)
+            .map { part in availableModels.first { $0.id == part }?.shortName ?? part }
+            .joined(separator: MeetingMerge.valueSeparator)
     }
 
     func rememberMicrophoneApplications(_ applications: [MicrophoneApplication]) {

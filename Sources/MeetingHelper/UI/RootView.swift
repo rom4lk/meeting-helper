@@ -13,6 +13,7 @@ struct RootView: View {
     @EnvironmentObject private var controller: AppController
     @State private var selection: SidebarItem?
     @State private var meetingPendingDeletion: Meeting?
+    @State private var meetingPendingMerge: Meeting?
 
     var body: some View {
         NavigationSplitView {
@@ -130,6 +131,11 @@ struct RootView: View {
                         }
                         .tag(SidebarItem.meeting(meeting.id))
                         .contextMenu {
+                            Button("Merge with…") {
+                                meetingPendingMerge = meeting
+                            }
+                            .disabled(!canMerge)
+                            Divider()
                             Button("Delete", role: .destructive) {
                                 deleteMeeting(meeting)
                             }
@@ -171,7 +177,21 @@ struct RootView: View {
             } message: { _ in
                 Text("This meeting is longer than 5 minutes. Deleting it permanently removes its recording and transcript.")
             }
+            .sheet(item: $meetingPendingMerge) { meeting in
+                MergeMeetingsSheet(anchor: meeting) { mergedID in
+                    selection = .meeting(mergedID)
+                }
+                .environmentObject(controller)
+            }
         }
+    }
+
+    /// Merging rewrites hundreds of megabytes, so it stays out of the way of a recording.
+    private var canMerge: Bool {
+        controller.store.meetings.count >= 2
+            && !controller.isRecording
+            && !controller.isStopping
+            && !controller.isMerging
     }
 
     private func deleteMeeting(_ meeting: Meeting) {

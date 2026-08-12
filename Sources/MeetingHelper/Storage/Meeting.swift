@@ -15,6 +15,9 @@ struct Meeting: Identifiable, Codable, Hashable {
     /// most manual recordings have none and because meetings recorded before calendar support
     /// exists must keep decoding.
     var calendar: MeetingCalendarInfo?
+    /// The recordings this meeting was merged from, in the order they were joined. `nil` for an
+    /// ordinary recording, and for meetings saved before merging existed.
+    var mergedSegments: [MergedMeetingSegment]?
 
     init(
         id: UUID = UUID(),
@@ -25,7 +28,8 @@ struct Meeting: Identifiable, Codable, Hashable {
         hasMicTrack: Bool = false,
         hasSystemTrack: Bool = false,
         transcriptionModel: String? = nil,
-        calendar: MeetingCalendarInfo? = nil
+        calendar: MeetingCalendarInfo? = nil,
+        mergedSegments: [MergedMeetingSegment]? = nil
     ) {
         self.id = id
         self.title = title
@@ -36,6 +40,7 @@ struct Meeting: Identifiable, Codable, Hashable {
         self.hasSystemTrack = hasSystemTrack
         self.transcriptionModel = transcriptionModel
         self.calendar = calendar
+        self.mergedSegments = mergedSegments
     }
 
     var formattedDuration: String { duration.clockString }
@@ -47,6 +52,34 @@ struct Meeting: Identifiable, Codable, Hashable {
     func shouldBeSaved(minimumDuration: TimeInterval) -> Bool {
         duration >= minimumDuration
     }
+
+    /// What the detail view calls this meeting's kind.
+    ///
+    /// A merge of recordings with different kinds stores their raw values joined together, which
+    /// `Kind` decodes as `.unknown` and would otherwise show as a flat "Other".
+    var kindDisplayName: String {
+        guard let mergedSegments, !mergedSegments.isEmpty else { return kind.displayName }
+
+        var names: [String] = []
+        for segment in mergedSegments where !names.contains(segment.kind.displayName) {
+            names.append(segment.kind.displayName)
+        }
+        return names.joined(separator: " + ")
+    }
+}
+
+/// One recording that went into a merged meeting.
+///
+/// The merged timeline joins the recordings back to back and drops the gaps between them, so this
+/// is the only place where the moment each part was actually recorded survives.
+struct MergedMeetingSegment: Codable, Hashable {
+    let sourceID: UUID
+    let title: String
+    let kind: DetectedMeeting.Kind
+    let startedAt: Date
+    /// Seconds from the start of the merged recording.
+    let offset: TimeInterval
+    let duration: TimeInterval
 }
 
 /// On-disk layout. One directory per meeting keeps everything inspectable with Finder and

@@ -17,6 +17,7 @@ and stop recording automatically, and keep a live transcript visible while you w
 - Echo filtering and transcript deduplication for cleaner speaker attribution.
 - Process-scoped audio capture for detected meetings, plus manual recording of all system audio.
 - Saved recordings, playback, transcripts, timestamps, and meeting metadata.
+- Recordings of one meeting that ended up saved separately can be merged into a single meeting.
 - Optional read-only calendar integration covering every account macOS syncs, such as a work Google
   account and a personal one. A recording takes the name of the calendar event it belongs to and
   keeps that event's list of participants.
@@ -109,6 +110,17 @@ meetings. The same folder must be selected in Meeting Helper on every Mac.
 The selected limit applies to the combined set of meetings found on the Mac and in the sync folder.
 Meetings beyond the limit remain in the local library but are removed from the sync folder. Turning
 synchronization off does not delete copies already in that folder.
+
+### Merge recordings
+
+When one meeting ended up as several recordings — a call that dropped, a break the detector treated
+as the end of the meeting — right-click one of them in the sidebar and choose **Merge with…**. Tick
+the other recordings, give the result a title, and press **Merge**.
+
+The recordings are joined back to back in the order they were recorded, and the time between them is
+not kept: a merged meeting is exactly as long as its recordings together. Overlapping recordings are
+reported in the sheet and joined back to back anyway. The original recordings are deleted once the
+merged meeting is saved; untick **Delete original recordings** to keep them.
 
 ### Connect a calendar
 
