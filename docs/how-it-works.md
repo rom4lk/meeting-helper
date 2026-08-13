@@ -3,6 +3,21 @@
 This document describes the implementation behind meeting detection, audio capture, speaker
 attribution, and transcription. For installation and usage, see the [README](../README.md).
 
+## Settings
+
+Settings open with ⌘, in a window of their own, separate from the meetings window. A sidebar splits
+them into six screens under two headings: **Configure** holds *General*, *Recording*,
+*Transcription* and *Live Transcript*, **Data** holds *Calendar* and *iCloud*. The sidebar cannot be
+collapsed, since it is the only way between screens. The rest of this document refers to a setting
+by its screen, as in **Settings > Recording**.
+
+Each screen is a grouped `Form` of one or two labeled sections, and each row carries its own
+explanation: the title and the sentence describing it sit together on the leading edge, with the
+toggle, picker or button on the trailing edge, so the control is never separated from the text it
+belongs to. `SettingRowLabel` builds that pair and is the only piece shared between the screens; a
+caution that has to stand out — the any-application detection mode, a calendar selection that
+excludes everything — stays a colored line of its own instead.
+
 ## Meeting detection
 
 Meeting Helper combines four signals, from precise to general.
@@ -28,14 +43,14 @@ microphone activity and a window that one of the `BrowserMeetingService` entries
 Accessibility access, browser meeting detection is unavailable, while Zoom detection continues to
 work.
 
-Settings offers three detection modes. **Recognized meetings** is the default and uses only the
-Zoom and browser signals above. **Selected apps using the microphone** also starts a recording when
-one of the chosen application bundle ID families has an active input stream. **Any app using the
-microphone** accepts every identifiable application except the configured exclusions. The app
-process is always excluded because Meeting Helper itself opens the microphone after recording
-starts. Both general modes persist the bundle ID and latest display name of every identifiable
-application observed with an active input stream, including applications that are not selected or
-are currently excluded. The add and exclude menus offer this history alongside the full
+**Settings > Recording** offers three detection modes. **Recognized meetings** is the default and
+uses only the Zoom and browser signals above. **Selected apps using the microphone** also starts a
+recording when one of the chosen application bundle ID families has an active input stream. **Any
+app using the microphone** accepts every identifiable application except the configured exclusions.
+The app process is always excluded because Meeting Helper itself opens the microphone after
+recording starts. Both general modes persist the bundle ID and latest display name of every
+identifiable application observed with an active input stream, including applications that are not
+selected or are currently excluded. The add and exclude menus offer this history alongside the full
 Applications folder picker.
 
 General microphone activity must remain present for two consecutive two-second polls before a
@@ -45,9 +60,9 @@ from splitting one call into several recordings. When several applications hold 
 the detector keeps tracking the application that caused the start; another active application does
 not keep that recording alive.
 
-An application selected in Settings is stored by bundle ID rather than display name. Helper
-processes are mapped back to their outer `.app` bundle when possible, and every matching Core Audio
-process is included in the process-scoped output tap. Processes that cannot be mapped to an
+An application selected in **Settings > Recording** is stored by bundle ID rather than display name.
+Helper processes are mapped back to their outer `.app` bundle when possible, and every matching Core
+Audio process is included in the process-scoped output tap. Processes that cannot be mapped to an
 application are ignored in the any-app mode so a Core Audio daemon cannot create a permanent false
 meeting. The precise Zoom and recognized-browser paths run before general microphone detection, so
 they keep their better titles and known audio bundle families when both signals are available.
@@ -210,16 +225,17 @@ and keeps the rest. Level plays no part in the decision, so speech is kept howev
 
 With headphones, without a system track, or before the delay has been measured, the gate does not
 fire. The recording window shows how many utterances it has compared and filtered. It can be
-disabled in Settings, which removes the reference buffer and the wait of up to half a second for the
-system track to catch up. Thresholds and calibration measurements are documented in
-[echo-gate-calibration.md](../knowledge/echo-gate-calibration.md).
+disabled in **Settings > Transcription**, which removes the reference buffer and the wait of up to
+half a second for the system track to catch up. Thresholds and calibration measurements are
+documented in [echo-gate-calibration.md](../knowledge/echo-gate-calibration.md).
 
 ### Transcript deduplication
 
 Transcript deduplication runs after recognition. It compares near-simultaneous lines from the two
 tracks and keeps the cleaner system-audio copy when both contain the same speech. It catches leakage
 that passed the echo gate, while the echo gate handles cases where the two tracks produce different
-words for the same speech. Deduplication is enabled by default and can be disabled in Settings.
+words for the same speech. Deduplication is enabled by default and can be disabled in
+**Settings > Transcription**.
 
 ### Hiding your own speech
 
@@ -229,16 +245,16 @@ transcript, so switching the lines back on brings the hidden ones with it.
 
 Unlike the other transcript options, this switch is read every time the live views redraw instead of
 being captured when the recording starts, which is what lets it be flipped mid-call. It is available
-in Settings, in the header of the recording window, and in the floating panel header, where the eye
-icon next to "Me" also shows the current state.
+in **Settings > Live Transcript**, in the header of the recording window, and in the floating panel
+header, where the eye icon next to "Me" also shows the current state.
 
 ## Transcription
 
-Transcription uses Core ML through either WhisperKit or FluidAudio. Settings offers Whisper
-large-v3 turbo (~1.5 GB, the default), full Whisper large-v3 (~3 GB, the most accurate and the
-slowest), and multilingual Parakeet TDT v3 (~600 MB). Both Whisper variants come from the
-`argmaxinc/whisperkit-coreml` repository and share the same code path; their model files are stored
-under:
+Transcription uses Core ML through either WhisperKit or FluidAudio. **Settings > Transcription**
+offers Whisper large-v3 turbo (~1.5 GB, the default), full Whisper large-v3 (~3 GB, the most
+accurate and the slowest), and multilingual Parakeet TDT v3 (~600 MB). Both Whisper variants come
+from the `argmaxinc/whisperkit-coreml` repository and share the same code path; their model files
+are stored under:
 
 ```text
 ~/Library/Application Support/MeetingHelper/Models
@@ -263,13 +279,13 @@ by older versions do not have this field and omit the model.
 
 While a recording is active, utterances that arrive before its captured model is ready wait for that
 model load instead of being dropped. If the recording stops before the model becomes ready, that
-pending transcription work is discarded so stopping does not wait for the download. The model can
-be downloaded in advance from Settings. On later launches, the app loads the local files and
-prepares Core ML without contacting the model repository. The interface distinguishes device
-optimization from loading the optimized model into memory. Core ML does not expose progress within
-device optimization; the first optimization can take 10 minutes or more, while the subsequent load
-usually takes a few seconds. macOS caches the optimized model, so later launches are normally much
-faster unless the system cache has been evicted.
+pending transcription work is discarded so stopping does not wait for the download. The model can be
+downloaded in advance from **Settings > Transcription**. On later launches, the app loads the local
+files and prepares Core ML without contacting the model repository. The interface distinguishes
+device optimization from loading the optimized model into memory. Core ML does not expose progress
+within device optimization; the first optimization can take 10 minutes or more, while the subsequent
+load usually takes a few seconds. macOS caches the optimized model, so later launches are normally
+much faster unless the system cache has been evicted.
 
 ## Calendar
 
@@ -309,12 +325,12 @@ makes an account added a moment ago visible.
 
 ### Reading events
 
-Every calendar the account offers is enabled by default. Settings stores the EventKit identifiers
-of calendars the user disables, so newly discovered calendars remain enabled without rewriting the
-preference. Only enabled calendars are queried, over a window from one hour back to three hours
-ahead of the moment the recording starts. EventKit reads a local database, so this is a plain query
-at the moment it is needed rather than a cache kept warm in the background: there is no round trip
-worth avoiding, and therefore no window that can go stale.
+Every calendar the account offers is enabled by default. **Settings > Calendar** stores the EventKit
+identifiers of calendars the user disables, so newly discovered calendars remain enabled without
+rewriting the preference. Only enabled calendars are queried, over a window from one hour back to
+three hours ahead of the moment the recording starts. EventKit reads a local database, so this is a
+plain query at the moment it is needed rather than a cache kept warm in the background: there is no
+round trip worth avoiding, and therefore no window that can go stale.
 
 All-day entries and cancelled events are dropped. An all-day entry spans every meeting of the day,
 so keeping them would put a birthday reminder in front of the real event. A participant EventKit
@@ -414,8 +430,8 @@ Naming a voice during a live recording also stores it, in a single local file:
 
 Each profile is an address, a display name and one embedding. A voice embedding is biometric data,
 so the file sits beside the meeting library rather than inside it — the folder sync copies meeting
-directories, and this must never travel with them. Settings shows how many voices are known and
-offers to forget all of them.
+directories, and this must never travel with them. **Settings > Live Transcript** shows how many
+voices are known and offers to forget all of them.
 
 Renaming a voice on a saved meeting is possible too, but it only relabels that transcript. Teaching
 a voice needs its embedding, and those exist only for as long as the recording that heard them.
@@ -448,8 +464,8 @@ delivering silence. Meeting Helper reads the state through the TCC SPI. As a fal
 `RecordingSession` shows a warning when the tap remains near-silent for 20 seconds.
 
 Besides the microphone, system audio recording and Accessibility, the app requests calendar access —
-optionally, and only when the calendar section of the settings screen asks for it. It holds no Apple
-Events entitlement and nothing in the code reaches for one.
+optionally, and only when the Calendar screen in Settings asks for it. It holds no Apple Events
+entitlement and nothing in the code reaches for one.
 
 Calendar access needs two things beyond the call itself, and missing either produces the same
 silence. `NSCalendarsFullAccessUsageDescription` is the text the prompt shows. The
