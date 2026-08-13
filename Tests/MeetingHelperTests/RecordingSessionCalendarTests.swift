@@ -18,7 +18,7 @@ final class RecordingSessionCalendarTests: XCTestCase {
         )
     }
 
-    private func match(title: String, isConfident: Bool) -> CalendarEventMatcher.Match {
+    private func match(title: String) -> CalendarEventMatcher.Match {
         CalendarEventMatcher.Match(
             event: CalendarEvent(
                 id: "event-1",
@@ -28,18 +28,15 @@ final class RecordingSessionCalendarTests: XCTestCase {
                 start: Date(),
                 end: Date().addingTimeInterval(3600),
                 organizerEmail: nil,
-                attendees: [CalendarAttendee(email: "ivan@example.com")],
-                conferenceURLs: []
-            ),
-            score: isConfident ? 120 : 20,
-            isConfident: isConfident
+                attendees: [CalendarAttendee(email: "ivan@example.com")]
+            )
         )
     }
 
-    func testAConfidentMatchRenamesTheRecording() {
+    func testAMatchRenamesTheRecording() {
         let session = makeSession()
 
-        session.apply(match(title: "Quarterly roadmap review", isConfident: true))
+        session.apply(match(title: "Quarterly roadmap review"))
 
         XCTAssertEqual(session.title, "Quarterly roadmap review")
         XCTAssertEqual(session.calendar?.title, "Quarterly roadmap review")
@@ -48,18 +45,10 @@ final class RecordingSessionCalendarTests: XCTestCase {
     func testAnEmptyCalendarTitleKeepsTheWindowTitleAndAttendees() {
         let session = makeSession(title: "Zoom topic")
 
-        session.apply(match(title: "  ", isConfident: true))
+        session.apply(match(title: "  "))
 
         XCTAssertEqual(session.title, "Zoom topic")
         XCTAssertEqual(session.calendar?.attendees.first?.email, "ivan@example.com")
     }
 
-    func testAnUncertainMatchIsIgnored() {
-        let session = makeSession()
-
-        session.apply(match(title: "Dentist", isConfident: false))
-
-        XCTAssertEqual(session.title, "Meet — abc-defg-hij")
-        XCTAssertNil(session.calendar)
-    }
 }

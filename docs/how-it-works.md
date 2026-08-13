@@ -324,25 +324,17 @@ than failing the event, so a meeting cannot lose its whole roster over one field
 
 ### Matching a recording to an event
 
-The signals differ sharply in strength, so they are scored rather than combined into a single test:
-
-| Signal | Weight | Why |
-|---|---|---|
-| Shared conference code | 100 | A Google Meet window title carries the meeting code, and the event carries the same code in its join link. Two independent sources agreeing on `abc-defg-hij` is not a coincidence. |
-| Title overlap | up to 60 | The tab title or Zoom topic is usually the event's name, but rarely character for character. Overlap of significant words survives a prefix, a suffix or a reordering. |
-| Detected inside the event | 20 | Favors an event already in progress; time alone selects it only when there is no alternative candidate. |
-
 Candidates are limited to events that the recording starts within ten minutes of — people join early
 and calls run over. A single candidate in that window is selected even when its title differs from
-the meeting window, because calendar metadata is the preferred source. Zoom has no equivalent of
-the Meet code, since its window shows the topic rather than the numeric meeting id, so multiple Zoom
-candidates are distinguished by title and time alone.
+the meeting window, because calendar metadata is the preferred source.
 
-When multiple events are candidates, a match below the confidence threshold or a tie is ignored.
-The recording then keeps the window title and no participant list rather than choosing an ambiguous
-event. An empty calendar title also falls back to the window title while retaining the event's
-participant list. Matching runs once, as the recording starts, so a title the user types afterwards
-is never at risk of being overwritten.
+When multiple events are candidates, events with invited attendees are preferred over events that
+contain only the current user or no attendees at all. If several candidates have invited attendees,
+the one the current user accepted is preferred. If these rules do not identify exactly one event,
+the match is ambiguous, so the recording keeps the window title and no participant list. An empty
+calendar title also falls back to the window title while retaining the event's participant list.
+Matching runs once, as the recording starts, so a title the user types afterwards is never at risk
+of being overwritten.
 
 The same event invited to both a work and a personal account arrives twice. Duplicates are collapsed
 by `iCalUID` together with the start time, keeping the copy from the calendar where the invitation

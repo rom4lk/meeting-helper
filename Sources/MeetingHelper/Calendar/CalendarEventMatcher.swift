@@ -2,150 +2,54 @@ import Foundation
 
 /// Decides which calendar event a detected meeting is.
 ///
-/// The signals differ sharply in strength, so they are scored rather than combined into one test.
-/// A conference code shared between the window title and the event's join link is proof; a similar
-/// title distinguishes otherwise overlapping events; time defines which events are candidates.
+/// Time defines which events are candidates. When several overlap, an invitation with other
+/// attendees is preferred, followed by one the current user accepted.
 ///
 /// Everything here is a pure function of its arguments so the decisions stay testable without a
 /// network or a running meeting.
 enum CalendarEventMatcher {
     struct Match {
         let event: CalendarEvent
-        let score: Int
-        /// Whether the winner is clear enough to attach its metadata and rename the recording.
-        let isConfident: Bool
     }
 
     /// How far outside an event a meeting can start and still belong to it. People join early and
     /// calls run over.
     static let tolerance: TimeInterval = 10 * 60
 
-    private static let conferenceCodeScore = 100
-    private static let titleScore = 60
-    private static let insideIntervalScore = 20
-    /// Multiple calendar candidates still need a strong signal to distinguish them.
-    private static let confidentScore = 60
-
-    /// Ranks the events that could be this meeting, best first.
-    static func candidates(for meeting: DetectedMeeting, in events: [CalendarEvent]) -> [Match] {
-        let deduplicated = deduplicate(events)
-        let scored = deduplicated.compactMap { event -> Match? in
-            guard isWithinTolerance(meeting.detectedAt, of: event) else { return nil }
-            let score = score(meeting: meeting, event: event)
-            return Match(event: event, score: score, isConfident: score >= confidentScore)
-        }
-
-        return scored.sorted { lhs, rhs in
-            if lhs.score != rhs.score { return lhs.score > rhs.score }
-            // Same score: prefer the event that started closer to the moment of detection.
-            let lhsDistance = abs(lhs.event.start.timeIntervalSince(meeting.detectedAt))
-            let rhsDistance = abs(rhs.event.start.timeIntervalSince(meeting.detectedAt))
-            return lhsDistance < rhsDistance
-        }
+    /// The events close enough to the recording start to be considered.
+    static func candidates(
+        for meeting: DetectedMeeting,
+        in events: [CalendarEvent]
+    ) -> [CalendarEvent] {
+        deduplicate(events).filter { isWithinTolerance(meeting.detectedAt, of: $0) }
     }
 
     /// The best unambiguous event, or `nil` when the calendar cannot identify one.
     ///
-    /// A single event in the time window is enough because calendar metadata is the preferred
-    /// source for a recording. Stronger title and conference-code signals are only needed to pick
-    /// between multiple simultaneous events.
+    /// A single event in the time window is enough. Among multiple events, prefer the only one
+    /// with invited attendees. If several have attendees, prefer the only one the user accepted.
     static func bestMatch(for meeting: DetectedMeeting, in events: [CalendarEvent]) -> Match? {
-        let ranked = candidates(for: meeting, in: events)
-        guard let best = ranked.first else { return nil }
+        let candidates = candidates(for: meeting, in: events)
+        guard let first = candidates.first else { return nil }
+        guard candidates.count > 1 else { return Match(event: first) }
 
-        if ranked.count == 1 {
-            return Match(event: best.event, score: best.score, isConfident: true)
+        let withInvitedAttendees = candidates.filter { event in
+            event.attendees.contains { !$0.isSelf }
         }
+        guard let firstWithAttendees = withInvitedAttendees.first else { return nil }
+        guard withInvitedAttendees.count > 1 else { return Match(event: firstWithAttendees) }
 
-        guard best.isConfident else { return nil }
-
-        // A tie between two events is not a match. Renaming the recording after the wrong one is
-        // worse than leaving the window title in place.
-        if ranked[1].score == best.score {
-            return nil
+        let accepted = withInvitedAttendees.filter { event in
+            event.attendees.contains { $0.isSelf && $0.responseStatus == .accepted }
         }
-        return best
+        guard accepted.count == 1, let acceptedEvent = accepted.first else { return nil }
+        return Match(event: acceptedEvent)
     }
-
-    // MARK: - Scoring
 
     private static func isWithinTolerance(_ moment: Date, of event: CalendarEvent) -> Bool {
         moment >= event.start.addingTimeInterval(-tolerance)
             && moment <= event.end.addingTimeInterval(tolerance)
     }
-
-    private static func score(meeting: DetectedMeeting, event: CalendarEvent) -> Int {
-        var score = 0
-
-        if sharesConferenceCode(meeting: meeting, event: event) {
-            score += conferenceCodeScore
-        }
-        score += Int(Double(titleScore) * titleSimilarity(meeting.title, event.title))
-        if meeting.detectedAt >= event.start, meeting.detectedAt <= event.end {
-            score += insideIntervalScore
-        }
-
-        return score
-    }
-
-    /// A Google Meet window title carries the meeting code (`Meet — abc-defg-hij`), and the event
-    /// carries the same code inside its join link. When both are present it is the one signal that
-    /// cannot be a coincidence.
-    ///
-    /// Zoom has no equivalent: its window shows the topic, not the numeric meeting id, so a Zoom
-    /// call is matched on its title and time instead.
-    static func sharesConferenceCode(meeting: DetectedMeeting, event: CalendarEvent) -> Bool {
-        let codesInTitle = conferenceCodes(in: meeting.title)
-        guard !codesInTitle.isEmpty else { return false }
-
-        let codesInEvent = Set(event.conferenceURLs.flatMap { conferenceCodes(in: $0.absoluteString) })
-        return !codesInTitle.isDisjoint(with: codesInEvent)
-    }
-
-    /// Meet codes look like `abc-defg-hij`. The pattern is specific enough that an ordinary phrase
-    /// does not produce one.
-    static func conferenceCodes(in text: String) -> Set<String> {
-        let pattern = "[a-z]{3}-[a-z]{4}-[a-z]{3}"
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return []
-        }
-
-        let matches = regex.matches(in: text, range: range).compactMap { match -> String? in
-            guard let range = Range(match.range, in: text) else { return nil }
-            return text[range].lowercased()
-        }
-        return Set(matches)
-    }
-
-    /// Overlap of the significant words in the two titles, from 0 to 1.
-    ///
-    /// A browser meeting's title is the tab title and a Zoom one is the meeting topic; both are
-    /// usually the event's own name, but neither is guaranteed to be it exactly. Word overlap
-    /// survives a suffix, a prefix or a reordering, which an equality test does not.
-    static func titleSimilarity(_ lhs: String, _ rhs: String) -> Double {
-        let lhsWords = significantWords(in: lhs)
-        let rhsWords = significantWords(in: rhs)
-        guard !lhsWords.isEmpty, !rhsWords.isEmpty else { return 0 }
-
-        let shared = lhsWords.intersection(rhsWords).count
-        return Double(shared) / Double(min(lhsWords.count, rhsWords.count))
-    }
-
-    /// Words worth comparing: single characters and digits carry no meaning here, and the words
-    /// that every second meeting is called would match everything.
-    private static func significantWords(in title: String) -> Set<String> {
-        let separators = CharacterSet.alphanumerics.inverted
-        let words = title.lowercased()
-            .components(separatedBy: separators)
-            .filter { $0.count > 1 && !stopWords.contains($0) }
-
-        return Set(words)
-    }
-
-    private static let stopWords: Set<String> = [
-        "meet", "meeting", "call", "sync", "the", "and", "with", "zoom", "google"
-    ]
 
     // MARK: - Deduplication
 

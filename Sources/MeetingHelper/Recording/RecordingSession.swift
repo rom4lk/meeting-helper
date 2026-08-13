@@ -100,7 +100,6 @@ final class RecordingSession: ObservableObject {
     /// Called before `start`, so the voices of the people on the invitation are already known when
     /// the first utterance arrives.
     func apply(_ match: CalendarEventMatcher.Match) {
-        guard match.isConfident else { return }
         let info = MeetingCalendarInfo(event: match.event)
         calendar = info
         roster = SpeakerRoster(attendees: info.otherAttendees)

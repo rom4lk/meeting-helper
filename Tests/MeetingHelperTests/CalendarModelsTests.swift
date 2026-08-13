@@ -49,8 +49,7 @@ final class CalendarModelsTests: XCTestCase {
                 CalendarAttendee(email: "me@example.com", isSelf: true),
                 CalendarAttendee(email: "lead@example.com", isOrganizer: true),
                 CalendarAttendee(email: "ivan@example.com")
-            ],
-            conferenceURLs: []
+            ]
         )
 
         let info = MeetingCalendarInfo(event: event)
@@ -93,8 +92,7 @@ final class CalendarModelsTests: XCTestCase {
             start: Date(),
             end: Date().addingTimeInterval(3600),
             organizerEmail: "lead@example.com",
-            attendees: [CalendarAttendee(email: "ivan@example.com", displayName: "Ivan Petrov")],
-            conferenceURLs: []
+            attendees: [CalendarAttendee(email: "ivan@example.com", displayName: "Ivan Petrov")]
         )
         let meeting = Meeting(
             title: "Roadmap review",

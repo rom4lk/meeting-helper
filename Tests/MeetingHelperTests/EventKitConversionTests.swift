@@ -42,39 +42,4 @@ final class EventKitConversionTests: XCTestCase {
         XCTAssertEqual(CalendarAttendee.ResponseStatus(.delegated), .needsAction)
         XCTAssertEqual(CalendarAttendee.ResponseStatus(.unknown), .needsAction)
     }
-
-    // MARK: - Conference links
-
-    func testCollectsLinksFromTheURLTheLocationAndTheNotes() {
-        let urls = CalendarEvent.conferenceURLs(
-            url: URL(string: "https://meet.google.com/abc-defg-hij"),
-            location: "Room 4 or https://example.zoom.us/j/123456",
-            notes: "Join at https://meet.google.com/abc-defg-hij or dial in."
-        )
-
-        XCTAssertEqual(
-            urls.map(\.absoluteString),
-            [
-                "https://meet.google.com/abc-defg-hij",
-                "https://example.zoom.us/j/123456"
-            ]
-        )
-    }
-
-    func testAnEventWithNothingLinkShapedHasNoConferenceURLs() {
-        XCTAssertTrue(CalendarEvent.conferenceURLs(url: nil, location: "Kitchen", notes: nil).isEmpty)
-        XCTAssertTrue(CalendarEvent.conferenceURLs(url: nil, location: nil, notes: "").isEmpty)
-    }
-
-    /// The Meet code in the description is what makes a browser meeting matchable, so it has to
-    /// survive being surrounded by ordinary text.
-    func testFindsTheMeetCodeInsideADescription() {
-        let urls = CalendarEvent.conferenceURLs(
-            url: nil,
-            location: nil,
-            notes: "Weekly sync\n\nVideo call: https://meet.google.com/abc-defg-hij\nPhone: +1 555 0100"
-        )
-
-        XCTAssertEqual(CalendarEventMatcher.conferenceCodes(in: urls[0].absoluteString), ["abc-defg-hij"])
-    }
 }

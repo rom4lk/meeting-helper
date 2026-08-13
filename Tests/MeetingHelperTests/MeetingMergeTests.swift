@@ -179,8 +179,7 @@ final class MeetingMergeTests: XCTestCase {
             start: Date(),
             end: Date(),
             organizerEmail: "lead@example.com",
-            attendees: [],
-            conferenceURLs: []
+            attendees: []
         )
         let first = try makeRecording(startedAt: .distantPast, micSeconds: 1, systemSeconds: nil)
         let second = try makeRecording(

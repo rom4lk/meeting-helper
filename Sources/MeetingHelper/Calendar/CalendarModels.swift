@@ -77,9 +77,6 @@ struct CalendarEvent: Identifiable, Hashable {
     let end: Date
     let organizerEmail: String?
     let attendees: [CalendarAttendee]
-    /// Every join link the event carries: its URL, and anything URL-shaped in the location or the
-    /// notes.
-    let conferenceURLs: [URL]
 
     /// Identifies one occurrence across accounts. `iCalUID` alone would also collapse two
     /// occurrences of the same recurring series into one, and a window can hold both.
