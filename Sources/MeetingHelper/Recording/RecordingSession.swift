@@ -74,6 +74,14 @@ final class RecordingSession: ObservableObject {
     private var uiTimer: Timer?
     private var systemRetryTimer: Timer?
     private var systemRetriesLeft = 15
+    /// When the tap attached, which can be seconds into the recording: the meeting app has to show
+    /// up in Core Audio's process list first.
+    private var systemTapAttachedAt: Date?
+    private var reportedEmptySystemTap = false
+
+    /// How long a started tap may stay empty before it is written to the log. A tap on an app that
+    /// is playing delivers buffers immediately, silent ones included.
+    private static let emptySystemTapReportDelay: TimeInterval = 15
 
     init(
         detected: DetectedMeeting,
@@ -318,6 +326,7 @@ final class RecordingSession: ObservableObject {
             }
 
             systemTap = tap
+            systemTapAttachedAt = Date()
             return true
         } catch {
             Log.audio.error("System tap failed: \(error, privacy: .public)")
@@ -462,6 +471,7 @@ final class RecordingSession: ObservableObject {
         if systemState == .pending, systemTap?.hasDeliveredAudio == true {
             systemState = .capturing
         }
+        reportEmptySystemTapIfNeeded()
 
         systemPeak = max(systemPeak, systemLevel)
         let systemIsAvailable: Bool
@@ -475,6 +485,27 @@ final class RecordingSession: ObservableObject {
         if let lastEchoDropAt, Date().timeIntervalSince(lastEchoDropAt) > 3 {
             echoGateFiring = false
         }
+    }
+
+    /// A tap that never delivers a buffer leaves no trace of its own: Core Audio reports no error,
+    /// the track keeps its bare header, and the meeting is saved without a system track. That is
+    /// what happens when the tap is scoped to an app that holds the microphone without playing
+    /// anything, so record which source was tapped — it is the only clue after the fact.
+    private func reportEmptySystemTapIfNeeded() {
+        guard !reportedEmptySystemTap,
+              let systemTapAttachedAt,
+              systemTap?.hasDeliveredAudio == false,
+              Date().timeIntervalSince(systemTapAttachedAt) > Self.emptySystemTapReportDelay
+        else { return }
+
+        reportedEmptySystemTap = true
+        Log.audio.error(
+            """
+            System tap on \(self.systemAudioSourceName, privacy: .public) has delivered no audio in \
+            \(Self.emptySystemTapReportDelay, privacy: .public) seconds; that source is most likely \
+            capturing the microphone without playing anything
+            """
+        )
     }
 
     private func refreshMicrophoneDeviceName() {

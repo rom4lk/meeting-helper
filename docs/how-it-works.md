@@ -28,6 +28,7 @@ Meeting Helper combines four signals, from precise to general.
 | Process audio activity | `kAudioProcessPropertyIsRunningInput` over a bundle ID family | The browser is holding the microphone |
 | Window title | Accessibility API | Distinguishes a meeting tab from other tabs and provides the meeting title |
 | General input activity | `kAudioProcessPropertyIsRunningInput` for an application process | Optional selected-app and any-app modes |
+| Process output activity | `kAudioProcessPropertyIsRunningOutput` over a bundle ID family | Picks the conferencing app when several applications hold the microphone |
 
 Zoom spawns the `CptHost` helper process for the duration of a conference and terminates it when the
 user leaves. This gives the app a precise start and end signal, unlike general microphone activity,
@@ -59,6 +60,21 @@ stops. The asymmetric debounce ignores short microphone tests and prevents an au
 from splitting one call into several recordings. When several applications hold the microphone,
 the detector keeps tracking the application that caused the start; another active application does
 not keep that recording alive.
+
+Which of several applications holding the microphone gets the recording is decided by output
+activity: a conference plays the other participants for its whole duration, while a microphone filter
+such as Krisp holds the input and never plays anything. Scoping the output tap to a filter records a
+system track that contains nothing but its header, so a playing application always wins. Bundle ID
+order used to make this choice on its own, which handed a call to whichever application happened to
+sort first; it now only breaks the remaining ties, and keeps the choice the same from one poll to the
+next.
+
+The application already accumulating positive polls is kept when a second one joins the microphone,
+so a filter starting a moment after the meeting app does not restart the countdown. It is given up as
+soon as a playing application appears, because a conferencing app can open its output stream shortly
+after it takes the microphone. Output activity is only a condition for starting: once a recording
+runs, the tracked application holding the microphone is all that keeps it alive, and a stream that
+closes mid-call does not end the meeting.
 
 An application selected in **Settings > Recording** is stored by bundle ID rather than display name.
 Helper processes are mapped back to their outer `.app` bundle when possible, and every matching Core
@@ -100,6 +116,13 @@ restarted automatically and gaps longer than one second are padded with silence 
 on the shared timeline. Automatically detected meetings use a Core Audio process tap
 (`AudioHardwareCreateProcessTap`, macOS 14.4+) scoped to the detected app, so unrelated audio is not
 included. Manual recordings use a global system audio tap and include all system output.
+
+A tap scoped to an application that never plays reports no error of its own: Core Audio starts it and
+keeps it alive, the track keeps its bare header, and the meeting is saved without a system track. When
+a started tap has delivered nothing fifteen seconds later, the name of the tapped source is written to
+the log at error level, which is a level `log show` keeps on disk. A tap on an application that is
+playing delivers buffers straight away, silent ones included, so the wait is only there to cover a
+source that starts late.
 
 A saved recording can contain the following files. Both audio tracks are normalized to 16 kHz mono
 and written separately:

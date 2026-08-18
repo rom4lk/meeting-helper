@@ -44,8 +44,8 @@ brew install xcodegen
 Clone the repository and generate the Xcode project:
 
 ```bash
-git clone https://github.com/rom4lk/yet-another-meeting-helper.git
-cd yet-another-meeting-helper
+git clone https://github.com/rom4lk/meeting-helper.git
+cd meeting-helper
 xcodegen generate
 open MeetingHelper.xcodeproj
 ```
@@ -177,7 +177,9 @@ Meeting Helper detects Zoom directly and identifies Google Meet and Ktalk calls 
 Edge, and Safari using microphone activity and window titles. Ktalk is recognized on any host,
 including an organization's own one such as `example.ktalk.ru`. The detection setting can instead
 watch selected applications or any application that opens an input audio stream. The broad mode has
-an exclusion list for applications such as dictation tools and voice recorders.
+an exclusion list for applications such as dictation tools and voice recorders. When more than one
+application holds the microphone, the call goes to one that is also playing audio, so a microphone
+filter such as Krisp cannot claim it and leave the other participants unrecorded.
 
 Automatic recordings capture audio only from the detected meeting app. Manual recordings capture
 all system audio. The microphone and meeting audio are stored separately, which lets the transcript
@@ -199,15 +201,13 @@ and are read locally through EventKit, so nothing in the app talks to a network 
 
 ## Permissions
 
-| Permission | What for | Without it |
-|---|---|---|
-| Microphone | own track | recording does not start |
-| System audio | the other participants' track | silence in the second track |
-| Accessibility | window titles | no meeting titles and no browser meeting detection |
+| Permission | What for | Without it                                           |
+|---|---|------------------------------------------------------|
+| Microphone | own track | recording does not start                             |
+| System audio | the other participants' track | silence in the second track                          |
+| Accessibility | window titles | no meeting titles and no auto meeting detection      |
 | Calendars (optional) | event names and participants | recordings keep the window title and no participants |
 
-The app is deliberately **not sandboxed**: process-bound taps and the Accessibility API are not
-available under App Sandbox.
 
 ## Shortcuts
 

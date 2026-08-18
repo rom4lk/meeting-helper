@@ -11,16 +11,25 @@ enum AudioProcessLookup {
         let objectID: AudioObjectID
         let bundleID: String
         let pid: pid_t
+
+        /// `true` when this process belongs to one of the bundle ID families.
+        func belongs(toAnyOf prefixes: [String]) -> Bool {
+            prefixes.contains { AudioProcessLookup.bundleID(bundleID, belongsTo: $0) }
+        }
     }
 
     static func matches(prefixes: [String]) -> [Match] {
-        allMatches().filter { match in
-            prefixes.contains { bundleID(match.bundleID, belongsTo: $0) }
-        }
+        allMatches().filter { $0.belongs(toAnyOf: prefixes) }
     }
 
     static func activeInputMatches() -> [Match] {
         allMatches().filter { $0.objectID.isRunningInput }
+    }
+
+    /// Every process currently playing audio. Read once per poll and matched against several
+    /// bundle ID families, which is cheaper than walking the process list for each of them.
+    static func playingOutputMatches() -> [Match] {
+        allMatches().filter { $0.objectID.isRunningOutput }
     }
 
     /// `true` when any process of the family holds the microphone. This is the signal that

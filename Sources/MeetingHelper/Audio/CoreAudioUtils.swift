@@ -59,6 +59,14 @@ extension AudioObjectID {
     var isRunningInput: Bool {
         (try? readBool(kAudioProcessPropertyIsRunningInput)) ?? false
     }
+
+    /// `true` while the process is playing to an output device.
+    ///
+    /// This is what tells a conferencing app, which plays the other participants for the whole
+    /// call, apart from an app that only filters the microphone and never plays anything.
+    var isRunningOutput: Bool {
+        (try? readBool(kAudioProcessPropertyIsRunningOutput)) ?? false
+    }
 }
 
 // MARK: - Devices and taps

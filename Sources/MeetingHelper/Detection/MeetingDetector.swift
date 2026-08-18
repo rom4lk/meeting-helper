@@ -106,6 +106,12 @@ struct MicrophoneActivityTracker {
         case stop
     }
 
+    /// An application holding the microphone, and whether it is also playing audio.
+    struct Candidate: Equatable {
+        let bundleID: String
+        let playsOutput: Bool
+    }
+
     private(set) var currentBundleID: String?
     private var startCandidateBundleID: String?
     private var positiveTicks = 0
@@ -119,9 +125,9 @@ struct MicrophoneActivityTracker {
         self.stopTicks = stopTicks
     }
 
-    mutating func update(activeBundleIDs: Set<String>) -> Transition? {
+    mutating func update(candidates: [Candidate]) -> Transition? {
         if let currentBundleID {
-            if activeBundleIDs.contains(currentBundleID) {
+            if candidates.contains(where: { $0.bundleID == currentBundleID }) {
                 negativeTicks = 0
                 return nil
             }
@@ -132,14 +138,12 @@ struct MicrophoneActivityTracker {
             return .stop
         }
 
-        guard !activeBundleIDs.isEmpty else {
+        guard let candidate = choose(from: candidates) else {
             startCandidateBundleID = nil
             positiveTicks = 0
             return nil
         }
 
-        let candidate = startCandidateBundleID.flatMap { activeBundleIDs.contains($0) ? $0 : nil }
-            ?? activeBundleIDs.sorted().first!
         if candidate == startCandidateBundleID {
             positiveTicks += 1
         } else {
@@ -153,6 +157,35 @@ struct MicrophoneActivityTracker {
         positiveTicks = 0
         negativeTicks = 0
         return .start(candidate)
+    }
+
+    /// The application a start would be attributed to, or `nil` when nothing holds the microphone.
+    ///
+    /// An application that is also playing audio wins. A conference plays the other participants,
+    /// while a microphone filter such as Krisp holds the input for the entire call without ever
+    /// playing anything — and an output tap scoped to one of those records an empty track. Bundle
+    /// ID order used to make this choice on its own, which handed a call to whichever application
+    /// happened to sort first; it now only breaks the remaining ties, and keeps the result the same
+    /// from one poll to the next.
+    ///
+    /// The candidate already accumulating checks is kept even when another application sorts before
+    /// it, so a second application opening the microphone does not restart the countdown. It is
+    /// given up only when it turns out not to be the one playing audio, because a conferencing app
+    /// can open its output stream a moment after it takes the microphone.
+    private func choose(from candidates: [Candidate]) -> String? {
+        guard let best = candidates.min(by: Self.isPreferred) else { return nil }
+
+        guard let pending = candidates.first(where: { $0.bundleID == startCandidateBundleID }),
+              pending.playsOutput || !best.playsOutput
+        else { return best.bundleID }
+
+        return pending.bundleID
+    }
+
+    private static func isPreferred(_ left: Candidate, _ right: Candidate) -> Bool {
+        left.playsOutput == right.playsOutput
+            ? left.bundleID < right.bundleID
+            : left.playsOutput
     }
 
     mutating func reset() {
@@ -308,7 +341,9 @@ final class MeetingDetector: ObservableObject {
         }
 
         let appsByBundleID = Dictionary(uniqueKeysWithValues: activeApps.map { ($0.bundleID, $0) })
-        let transition = microphoneActivity.update(activeBundleIDs: Set(appsByBundleID.keys))
+        let transition = microphoneActivity.update(
+            candidates: Self.candidates(from: Array(appsByBundleID.values))
+        )
 
         switch transition {
         case .start(let bundleID):
@@ -329,6 +364,20 @@ final class MeetingDetector: ObservableObject {
             end()
         case nil:
             break
+        }
+    }
+
+    /// Notes which of the applications holding the microphone are also playing audio, which is how
+    /// the tracker tells a conference apart from a microphone filter.
+    private static func candidates(from apps: [ActiveMicrophoneApp]) -> [MicrophoneActivityTracker.Candidate] {
+        guard !apps.isEmpty else { return [] }
+
+        let playingOutput = AudioProcessLookup.playingOutputMatches()
+        return apps.map { app in
+            MicrophoneActivityTracker.Candidate(
+                bundleID: app.bundleID,
+                playsOutput: playingOutput.contains { $0.belongs(toAnyOf: app.audioPrefixes) }
+            )
         }
     }
 
