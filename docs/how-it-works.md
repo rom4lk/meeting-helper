@@ -61,6 +61,12 @@ from splitting one call into several recordings. When several applications hold 
 the detector keeps tracking the application that caused the start; another active application does
 not keep that recording alive.
 
+A meeting found this way has no service name to show, so the display name of the application that
+held the microphone is saved in `meeting.json` and the meeting header names it — `Microphone app:
+Telegram` rather than `Microphone app` alone. The recognized services and manual recordings do not
+store the field, because their kind already names the source, and recordings saved before the field
+existed keep showing the kind alone.
+
 Which of several applications holding the microphone gets the recording is decided by output
 activity: a conference plays the other participants for its whole duration, while a microphone filter
 such as Krisp holds the input and never plays anything. Scoping the output tap to a filter records a

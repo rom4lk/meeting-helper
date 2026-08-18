@@ -204,6 +204,7 @@ final class RecordingSession: ObservableObject {
             id: meetingID,
             title: title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? detected.title : title,
             kind: detected.kind,
+            audioSourceName: detected.audioSourceName,
             startedAt: startedAt,
             duration: duration,
             hasMicTrack: hasMic,

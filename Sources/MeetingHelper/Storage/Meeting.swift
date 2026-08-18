@@ -6,6 +6,10 @@ struct Meeting: Identifiable, Codable, Hashable {
     let id: UUID
     var title: String
     var kind: DetectedMeeting.Kind
+    /// The application the audio was captured from, when the kind alone does not name it — that is,
+    /// a meeting found by generic microphone activity. `nil` for the recognized meeting apps, for
+    /// manual recordings, and for meetings saved before this was stored.
+    var audioSourceName: String?
     var startedAt: Date
     var duration: TimeInterval
     var hasMicTrack: Bool
@@ -26,6 +30,7 @@ struct Meeting: Identifiable, Codable, Hashable {
         id: UUID = UUID(),
         title: String,
         kind: DetectedMeeting.Kind,
+        audioSourceName: String? = nil,
         startedAt: Date = Date(),
         duration: TimeInterval = 0,
         hasMicTrack: Bool = false,
@@ -38,6 +43,7 @@ struct Meeting: Identifiable, Codable, Hashable {
         self.id = id
         self.title = title
         self.kind = kind
+        self.audioSourceName = audioSourceName
         self.startedAt = startedAt
         self.duration = duration
         self.hasMicTrack = hasMicTrack
@@ -63,7 +69,10 @@ struct Meeting: Identifiable, Codable, Hashable {
     /// A merge of recordings with different kinds stores their raw values joined together, which
     /// `Kind` decodes as `.unknown` and would otherwise show as a flat "Other".
     var kindDisplayName: String {
-        guard let mergedSegments, !mergedSegments.isEmpty else { return kind.displayName }
+        guard let mergedSegments, !mergedSegments.isEmpty else {
+            guard let audioSourceName else { return kind.displayName }
+            return "\(kind.displayName): \(audioSourceName)"
+        }
 
         var names: [String] = []
         for segment in mergedSegments where !names.contains(segment.kind.displayName) {
