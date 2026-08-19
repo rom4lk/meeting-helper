@@ -12,6 +12,14 @@ actor SpeakerAttributor {
     /// truncated somewhere inside CoreML.
     static let maximumSamples = 160_000
 
+    /// Maximum cosine distance at which an utterance is treated as an already-heard voice rather
+    /// than a new one. Deliberately tighter than what the diarizer would use on its own (0.84, via
+    /// its `clusteringThreshold * 1.2`), because the trade-off here is asymmetric: a voice wrongly
+    /// split across two ids is repaired in one click by naming both, but two people merged under one
+    /// id cannot be separated at all. So we bias toward splitting. The single knob to tune — lower
+    /// it if similar voices still merge, raise it if one person keeps fragmenting.
+    static let matchThreshold: Float = 0.65
+
     /// Ids given to seeded profiles. They are deliberately not numbers: the diarizer numbers the
     /// voices it discovers itself from one upwards, and a shared id space would collide.
     private static let knownIDPrefix = "known-"
@@ -68,7 +76,8 @@ actor SpeakerAttributor {
         // half-second interjection deserves.
         guard let speaker = diarizer.speakerManager.assignSpeaker(
             embedding,
-            speechDuration: Float(duration)
+            speechDuration: Float(duration),
+            speakerThreshold: Self.matchThreshold
         ) else { return nil }
 
         return Assignment(id: speaker.id, profileEmail: profileEmails[speaker.id])

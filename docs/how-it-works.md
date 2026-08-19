@@ -410,6 +410,12 @@ then, so a hallucination on near-silence cannot invent a voice nobody hears agai
 go to FluidAudio's `wespeaker_v2` embedding model, and the resulting 256-dimensional vector is
 matched against the voices heard so far. A match yields that voice's id; no match creates a new one.
 
+The match uses a cosine-distance threshold tighter than the diarizer's own default (0.65 rather than
+the 0.84 it would apply unprompted). The bias is deliberate, because the two ways of being wrong are
+not equally costly: a voice split across two ids is put right in one click by naming both, but two
+people merged under a single id cannot be separated afterward. So the threshold leans toward creating
+a new voice over folding two together.
+
 The embedding model reads a fixed ten-second window (160 000 samples at 16 kHz), so longer
 utterances are cut to their first ten seconds before being handed over. By then the VAD has already
 closed on 0.8 seconds of silence, which makes a single speaker within that window very likely.
