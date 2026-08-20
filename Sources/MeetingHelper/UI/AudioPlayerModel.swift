@@ -39,14 +39,7 @@ final class AudioPlayerModel: NSObject, ObservableObject {
         } else {
             player.play()
             isPlaying = true
-            let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, let player = self.player else { return }
-                    self.currentTime = player.currentTime
-                }
-            }
-            RunLoop.main.add(timer, forMode: .common)
-            self.timer = timer
+            startTimer()
         }
     }
 
@@ -54,6 +47,28 @@ final class AudioPlayerModel: NSObject, ObservableObject {
         guard let player else { return }
         player.currentTime = max(0, min(time, player.duration))
         currentTime = player.currentTime
+    }
+
+    /// Jumps to `time` and keeps playing from there, whether or not playback was already running.
+    func play(from time: TimeInterval) {
+        guard let player else { return }
+        seek(to: time)
+        guard !player.isPlaying else { return }
+        player.play()
+        isPlaying = true
+        startTimer()
+    }
+
+    private func startTimer() {
+        timer?.invalidate()
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let player = self.player else { return }
+                self.currentTime = player.currentTime
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
 
     func stop() {

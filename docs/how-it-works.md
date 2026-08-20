@@ -145,6 +145,18 @@ and written separately:
 When the app is asked to quit during a recording, it delays termination until capture has stopped,
 the transcription backlog has drained, and the meeting files have been finalized.
 
+### Playback
+
+A saved meeting plays back from `mix.m4a`. Every transcript line carries its offset from the start
+of the recording, and merging rewrites those offsets onto the merged timeline, so a line always
+points at the same moment of the mixdown. Clicking a line plays the recording from the moment that
+line was said, whether playback was already running or not.
+
+The click has to land on the line's speaker, on its timecode, or on the space around the phrase.
+The phrase itself is selectable text, which handles its own clicks so that a fragment can still be
+selected with the mouse, and no gesture placed above it ever sees them. The live panel is not
+clickable at all: a recording that is still running has nothing to play back yet.
+
 ### Merging recordings
 
 Several saved recordings can be joined into one meeting. The result is a new meeting with its own

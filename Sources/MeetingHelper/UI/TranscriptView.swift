@@ -8,6 +8,9 @@ struct TranscriptView: View {
     var speakers: [MeetingSpeaker] = []
     var compact = false
     var autoScroll = false
+    /// Called with the line that was clicked. `nil` leaves the transcript inert, which is what the
+    /// live panel wants: a recording that is still running has nothing to play back yet.
+    var onSelect: ((TranscriptLine) -> Void)?
 
     private let bottomAnchorID = "transcript-bottom"
 
@@ -16,8 +19,13 @@ struct TranscriptView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: compact ? 6 : 10) {
                     ForEach(lines) { line in
-                        TranscriptRow(line: line, speaker: speaker(for: line), compact: compact)
-                            .id(line.id)
+                        TranscriptRow(
+                            line: line,
+                            speaker: speaker(for: line),
+                            compact: compact,
+                            onSelect: onSelect
+                        )
+                        .id(line.id)
                     }
 
                     Color.clear
@@ -48,6 +56,9 @@ private struct TranscriptRow: View {
     /// "Others": an unattributed phrase is not the same claim as an unnamed voice.
     let speaker: MeetingSpeaker?
     let compact: Bool
+    let onSelect: ((TranscriptLine) -> Void)?
+
+    @State private var isHovering = false
 
     private var color: Color {
         if line.source == .me { return .accentColor }
@@ -71,5 +82,21 @@ private struct TranscriptRow: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // The highlight is drawn outside the row's own bounds so that making a line clickable does
+        // not move the text it holds.
+        .background {
+            if isHovering, onSelect != nil {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.primary.opacity(0.07))
+                    .padding(.horizontal, -6)
+                    .padding(.vertical, -3)
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        // The click lands on the speaker, the timestamp and the space around the phrase, but not
+        // on the phrase itself: selectable text handles its own clicks so that a phrase can still
+        // be selected, and no gesture placed above it sees them.
+        .onTapGesture { onSelect?(line) }
     }
 }

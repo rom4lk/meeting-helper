@@ -27,7 +27,13 @@ struct MeetingDetailView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                TranscriptView(lines: lines, speakers: speakers)
+                TranscriptView(
+                    lines: lines,
+                    speakers: speakers,
+                    // Clicking a line plays the recording from the moment it was said. Without a
+                    // mixdown there is nothing to jump to, so the lines stay plain text.
+                    onSelect: player.isAvailable ? { player.play(from: $0.offset) } : nil
+                )
             }
         }
         .onAppear(perform: load)
