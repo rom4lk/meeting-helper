@@ -21,7 +21,8 @@ and stop recording automatically, and keep a live transcript visible while you w
   elsewhere the voices can be named from the recording window and are then recognized at their next
   meeting.
 - Process-scoped audio capture for detected meetings, plus manual recording of all system audio.
-- Saved recordings, playback, transcripts, timestamps, and meeting metadata.
+- Saved recordings, playback, transcripts, timestamps, and meeting metadata. Playback jumps to
+  any moment of a finished meeting: click a transcript line's speaker or timecode to hear it.
 - Recordings of one meeting that ended up saved separately can be merged into a single meeting.
 - Optional read-only calendar integration covering every account macOS syncs, such as a work Google
   account and a personal one. A recording takes the name of the calendar event it belongs to and
