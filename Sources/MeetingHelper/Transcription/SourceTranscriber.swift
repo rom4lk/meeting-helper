@@ -25,7 +25,9 @@ final class SourceTranscriber: @unchecked Sendable {
         static let minSpeechFrames = 4                  // shorter bursts are noise
         static let maxUtteranceFrames = 250             // hard cut at 25 s
         static let previewIntervalFrames = 20           // refresh the active phrase every 2 s
-        static let absoluteThreshold: Float = 0.006
+        /// Below this a frame is silence, wherever that is judged: here when opening an
+        /// utterance, and in `VoicedSpan` when the speaker model asks what part of one is speech.
+        static let absoluteThreshold = VoicedSpan.silenceThreshold
         static let noiseMultiplier: Float = 3.5
         /// How long an utterance waits for the system track to reach it before giving up.
         static let referenceWaitLimit: TimeInterval = 0.5
@@ -42,6 +44,9 @@ final class SourceTranscriber: @unchecked Sendable {
     private let transcribe: @Sendable ([Float], String?) async -> String?
     /// Names the voice in a finished utterance. Only the system track has one: the microphone is
     /// always the account owner, and asking a speaker model to confirm that would be waste.
+    ///
+    /// It is handed the spoken stretch of the utterance and the speech in it, not the padded whole
+    /// the recognizer sees — see `VoicedSpan` for why the difference matters.
     private let attribute: (@Sendable ([Float], TimeInterval) async -> String?)?
     private let onUpdate: @MainActor (SourceTranscriptionUpdate) -> Void
     private let queue: DispatchQueue
@@ -295,7 +300,10 @@ final class SourceTranscriber: @unchecked Sendable {
             // voice nobody ever hears again.
             var speakerID: String?
             if let attribute {
-                speakerID = await attribute(samples, Double(samples.count) / Constants.sampleRate)
+                let span = VoicedSpan.of(samples)
+                if !span.isEmpty {
+                    speakerID = await attribute(Array(samples[span.range]), span.duration)
+                }
             }
 
             let line = TranscriptLine(

@@ -187,10 +187,12 @@ final class SourceTranscriberTests: XCTestCase {
     private final class AttributionCalls: @unchecked Sendable {
         private let lock = NSLock()
         private var durations: [TimeInterval] = []
+        private var sampleCounts: [Int] = []
 
-        func answer(duration: TimeInterval) -> String {
+        func answer(samples: [Float], duration: TimeInterval) -> String {
             lock.lock()
             durations.append(duration)
+            sampleCounts.append(samples.count)
             let call = durations.count
             lock.unlock()
             return "voice-\(call)"
@@ -200,6 +202,12 @@ final class SourceTranscriberTests: XCTestCase {
             lock.lock()
             defer { lock.unlock() }
             return durations
+        }
+
+        var counts: [Int] {
+            lock.lock()
+            defer { lock.unlock() }
+            return sampleCounts
         }
     }
 
@@ -213,7 +221,9 @@ final class SourceTranscriberTests: XCTestCase {
             language: "en",
             realtimeUpdatesEnabled: true,
             transcribe: { _, _ in "Anything" },
-            attribute: { _, duration in attribution.answer(duration: duration) },
+            attribute: { samples, duration in
+                attribution.answer(samples: samples, duration: duration)
+            },
             onUpdate: { update in
                 updates.append(update)
                 if case .final = update { final.fulfill() }
@@ -230,7 +240,36 @@ final class SourceTranscriberTests: XCTestCase {
         XCTAssertTrue(updates.previews.allSatisfy { $0.speakerID == nil })
         // One embedding for the utterance, not one per two-second preview of it.
         XCTAssertEqual(attribution.observed.count, 1)
-        XCTAssertEqual(attribution.observed.first ?? 0, 4.8, accuracy: 0.001)
+        // The four seconds of speech, without the 800 ms of silence it took to close the utterance.
+        XCTAssertEqual(attribution.observed.first ?? 0, 4.0, accuracy: 0.001)
+        XCTAssertEqual(attribution.counts, [40 * SourceTranscriber.frameSize])
+    }
+
+    /// The padding is what used to make every "mhm" look like a second of speech, and a second is
+    /// exactly the point above which the diarizer starts inventing voices.
+    func testAShortInterjectionIsMeasuredWithoutItsPadding() async {
+        let final = expectation(description: "Final result")
+        let attribution = AttributionCalls()
+
+        let transcriber = makeTranscriber(
+            source: .others,
+            language: "en",
+            transcribe: { _, _ in "Mhm." },
+            attribute: { samples, duration in
+                attribution.answer(samples: samples, duration: duration)
+            },
+            onLine: { _ in final.fulfill() }
+        )
+
+        let speech = [Float](repeating: 0.1, count: 4 * SourceTranscriber.frameSize)
+        let silence = [Float](repeating: 0, count: 8 * SourceTranscriber.frameSize)
+        transcriber.feed(silence + speech + silence)
+        await transcriber.finish(waitForTranscription: true)
+        await fulfillment(of: [final], timeout: 1)
+
+        XCTAssertEqual(attribution.observed.first ?? 0, 0.4, accuracy: 0.001)
+        XCTAssertLessThan(attribution.observed.first ?? 0, 1)
+        XCTAssertEqual(attribution.counts, [4 * SourceTranscriber.frameSize])
     }
 
     func testAnUnrecognizedPhraseNeverAsksWhoSaidIt() async {
@@ -242,7 +281,9 @@ final class SourceTranscriberTests: XCTestCase {
             language: "en",
             realtimeUpdatesEnabled: false,
             transcribe: { _, _ in nil },
-            attribute: { _, duration in attribution.answer(duration: duration) },
+            attribute: { samples, duration in
+                attribution.answer(samples: samples, duration: duration)
+            },
             onUpdate: { update in
                 if case .removePreview = update { removed.fulfill() }
             }
@@ -523,6 +564,7 @@ final class SourceTranscriberTests: XCTestCase {
         echoReference: EchoReference? = nil,
         onEchoVerdict: (@MainActor (EchoVerdict) -> Void)? = nil,
         transcribe: @escaping @Sendable ([Float], String?) async -> String?,
+        attribute: (@Sendable ([Float], TimeInterval) async -> String?)? = nil,
         onLine: @escaping @MainActor (TranscriptLine) -> Void
     ) -> SourceTranscriber {
         SourceTranscriber(
@@ -532,6 +574,7 @@ final class SourceTranscriberTests: XCTestCase {
             echoReference: echoReference,
             onEchoVerdict: onEchoVerdict,
             transcribe: transcribe,
+            attribute: attribute,
             onUpdate: { update in
                 guard case .final(let line) = update else { return }
                 onLine(line)

@@ -422,6 +422,15 @@ then, so a hallucination on near-silence cannot invent a voice nobody hears agai
 go to FluidAudio's `wespeaker_v2` embedding model, and the resulting 256-dimensional vector is
 matched against the voices heard so far. A match yields that voice's id; no match creates a new one.
 
+Not quite the same samples, though: what the speaker model gets is the spoken stretch of the
+utterance, measured by `VoicedSpan`. An utterance carries 300 ms of pre-roll before the first spoken
+frame and the 800 ms of silence it took to close, both of which recognition wants and attribution
+must not see. The padding alone put every utterance over a second and buried short ones in silence,
+which is what split one person across half a dozen ids in a two-person meeting: interjections —
+"mhm", "okay", a sigh — each founded a voice of their own. Leading and trailing silence is therefore
+trimmed before the embedding is taken, and the duration reported is the speech in the span, with the
+pauses inside it left out. Those pauses stay in the audio: cutting them would splice the waveform.
+
 The match uses a cosine-distance threshold tighter than the diarizer's own default (0.65 rather than
 the 0.84 it would apply unprompted). The bias is deliberate, because the two ways of being wrong are
 not equally costly: a voice split across two ids is put right in one click by naming both, but two
@@ -431,9 +440,9 @@ a new voice over folding two together.
 The embedding model reads a fixed ten-second window (160 000 samples at 16 kHz), so longer
 utterances are cut to their first ten seconds before being handed over. By then the VAD has already
 closed on 0.8 seconds of silence, which makes a single speaker within that window very likely.
-Shorter audio is repeat-padded by the model itself. The true duration is passed along rather than
-the padded one: below a second the speaker database will match an existing voice but refuses to
-invent one, which is the right treatment for a half-second interjection.
+Shorter audio is repeat-padded by the model itself. The spoken duration is what gets passed along:
+below a second the speaker database will match an existing voice but refuses to invent one, which is
+the right treatment for a half-second interjection.
 
 Real-time previews are not attributed. They revisit the same audio every two seconds, so one
 embedding per preview would be both waste and a flickering label. A line therefore gains its name at
@@ -490,6 +499,9 @@ a voice needs its embedding, and those exist only for as long as the recording t
 - A speaker change *inside* one utterance is invisible. The VAD closes on 0.8 seconds of silence,
   and two people alternating faster than that land in the same utterance.
 - Several people in one conference room, arriving through one microphone, will not reliably separate.
+- A very short interjection that matches nobody carries no voice at all. Below a second of speech the
+  speaker database refuses to invent one, so the line stays "Others" rather than founding a voice for
+  a syllable.
 - The two models (`pyannote_segmentation` and `wespeaker_v2`, from
   `FluidInference/speaker-diarization-coreml`) are downloaded on first use in the background.
   Utterances that arrive before they are ready simply carry no voice; nothing waits and nothing is
