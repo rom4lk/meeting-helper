@@ -20,6 +20,13 @@ actor SpeakerAttributor {
     /// it if similar voices still merge, raise it if one person keeps fragmenting.
     static let matchThreshold: Float = 0.65
 
+    /// Voiced speech required before an unmatched utterance may found a new voice; shorter ones
+    /// still match voices already heard, or stay "Others". The library's own floor is one second,
+    /// which an interjection spoken over somebody else clears easily — its noisy embedding then
+    /// matches nobody and becomes a phantom id nobody hears again. Two seconds of continuous
+    /// speech is a sentence, and a sentence is what a voice deserves to be founded on.
+    static let minimumSecondsToFoundVoice: Float = 2.0
+
     /// Ids given to seeded profiles. They are deliberately not numbers: the diarizer numbers the
     /// voices it discovers itself from one upwards, and a shared id space would collide.
     private static let knownIDPrefix = "known-"
@@ -71,9 +78,9 @@ actor SpeakerAttributor {
               diarizer.validateEmbedding(embedding)
         else { return nil }
 
-        // The true duration is passed rather than the padded window's: below a second the speaker
-        // model will match an existing voice but refuses to invent one, which is the behaviour a
-        // half-second interjection deserves.
+        // The true duration is passed rather than the padded window's: below the floor set in
+        // `install` the speaker model will match an existing voice but refuses to invent one,
+        // which is the behaviour an interjection deserves.
         guard let speaker = diarizer.speakerManager.assignSpeaker(
             embedding,
             speechDuration: Float(duration),
@@ -97,6 +104,7 @@ actor SpeakerAttributor {
                 isPermanent: true
             )
         }
+        manager.speakerManager.minSpeechDuration = Self.minimumSecondsToFoundVoice
         manager.initializeKnownSpeakers(known)
 
         profileEmails = Dictionary(

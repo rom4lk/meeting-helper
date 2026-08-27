@@ -4,7 +4,7 @@ import Foundation
 ///
 /// The VAD hands on a padded utterance: 300 ms of pre-roll before the first spoken frame, and the
 /// 800 ms of silence it takes to close one. Recognition wants that run-up, but the speaker model
-/// must not be given it. The padding alone puts every utterance over the one second below which the
+/// must not be given it. The padding alone puts every utterance over the floor below which the
 /// diarizer only matches an already-heard voice and refuses to invent one, so a half-second "mhm"
 /// gets to found a speaker of its own; and the silence dilutes the embedding, which pushes even a
 /// familiar voice past the match threshold. Together they split one person across a handful of ids.

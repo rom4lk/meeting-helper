@@ -16,6 +16,8 @@ and stop recording automatically, and keep a live transcript visible while you w
   saved transcript keeps every line.
 - Echo filtering and transcript deduplication keep playback leaking back through the microphone out
   of the transcript.
+- Pure filler utterances — "Mm-hmm.", "Um...", "Э-э" — are dropped; short real answers like "Да."
+  or "Okay." are kept.
 - Optional speaker attribution tells the other participants apart, so a line says who spoke instead
   of just "Others". A meeting with one other person on the invitation names that voice by itself;
   elsewhere the voices can be named from the recording window and are then recognized at their next

@@ -307,6 +307,13 @@ divides each track into utterances. An utterance closes after 0.8 seconds of sil
 closed after 25 seconds. Each track has its own transcriber, and both use a shared actor that owns
 the selected model.
 
+Recognized text passes two whole-phrase filters before it becomes a line. One drops the stock
+phrases Whisper invents on near-silence ("Спасибо за просмотр!", "Thanks for watching!"); the other
+drops utterances that are nothing but a non-lexical backchannel — "Mm-hmm.", "Um...", "Э-э" — which
+otherwise bury the phrases that matter and, being embedded from barely any speech, found phantom
+voices in attribution. Both lists match the whole normalized phrase only, so "Um, I think we should
+ship it" and real short answers — "Да.", "Okay.", "No." — always survive.
+
 Optional real-time updates recognize an expanding, overlapping audio snapshot every two seconds.
 Each result updates a preview line in place. After a pause, the full-utterance result replaces the
 preview, and only the final line is saved. This mode is disabled by default because it uses more
@@ -441,8 +448,11 @@ The embedding model reads a fixed ten-second window (160 000 samples at 16 kHz),
 utterances are cut to their first ten seconds before being handed over. By then the VAD has already
 closed on 0.8 seconds of silence, which makes a single speaker within that window very likely.
 Shorter audio is repeat-padded by the model itself. The spoken duration is what gets passed along:
-below a second the speaker database will match an existing voice but refuses to invent one, which is
-the right treatment for a half-second interjection.
+below two seconds of voiced speech the speaker database will match an existing voice but refuses to
+invent one. The floor is raised from the library's own one second on purpose — an interjection
+spoken over somebody else clears one second easily, and its noisy embedding then matches nobody and
+becomes a voice heard exactly once. Two seconds of continuous speech is a sentence, which is what a
+voice deserves to be founded on.
 
 Real-time previews are not attributed. They revisit the same audio every two seconds, so one
 embedding per preview would be both waste and a flickering label. A line therefore gains its name at
@@ -504,9 +514,9 @@ a voice needs its embedding, and those exist only for as long as the recording t
 - A speaker change *inside* one utterance is invisible. The VAD closes on 0.8 seconds of silence,
   and two people alternating faster than that land in the same utterance.
 - Several people in one conference room, arriving through one microphone, will not reliably separate.
-- A very short interjection that matches nobody carries no voice at all. Below a second of speech the
-  speaker database refuses to invent one, so the line stays "Others" rather than founding a voice for
-  a syllable.
+- A very short interjection that matches nobody carries no voice at all. Below two seconds of speech
+  the speaker database refuses to invent one, so the line stays "Others" rather than founding a voice
+  for a syllable.
 - The two models (`pyannote_segmentation` and `wespeaker_v2`, from
   `FluidInference/speaker-diarization-coreml`) are downloaded on first use in the background.
   Utterances that arrive before they are ready simply carry no voice; nothing waits and nothing is

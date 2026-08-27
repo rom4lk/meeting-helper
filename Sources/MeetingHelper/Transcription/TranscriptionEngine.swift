@@ -350,6 +350,10 @@ actor TranscriptionEngine: SpeechTranscribing {
             Log.asr.debug("Dropped hallucination: \(text, privacy: .private)")
             return nil
         }
+        guard !FillerFilter.isFiller(text) else {
+            Log.asr.debug("Dropped filler: \(text, privacy: .private)")
+            return nil
+        }
 
         return text
     }
