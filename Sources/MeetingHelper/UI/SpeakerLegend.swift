@@ -25,14 +25,22 @@ struct SpeakerLegend: View {
 
     var body: some View {
         if !speakers.isEmpty {
-            HStack(spacing: 6) {
-                Image(systemName: "person.wave.2")
-                    .foregroundStyle(.tertiary)
+            // The strip scrolls because the chips must not decide how wide the window has to be.
+            // A meeting with a dozen voices, each named after an email address, is wider than the
+            // screen, and a row that refuses to compress pushes the sidebar out of the window.
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.wave.2")
+                        .foregroundStyle(.tertiary)
 
-                ForEach(speakers) { speaker in
-                    chip(for: speaker)
+                    ForEach(speakers) { speaker in
+                        chip(for: speaker)
+                    }
                 }
+                .padding(.vertical, 2)
             }
+            .scrollIndicators(.hidden)
+            .fixedSize(horizontal: false, vertical: true)
             .font(.caption)
         }
     }

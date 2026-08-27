@@ -461,6 +461,11 @@ who they are. What the invitation buys is narrower and still worth having:
 - **A closed pick list.** Naming a voice by hand is a choice among the attendees rather than free
   text, which keeps a person spelled the same way across meetings.
 
+The voices are listed as a strip of chips in the meeting header, one per voice, and the strip
+scrolls sideways rather than growing: a call with a dozen unnamed voices, each labelled with an
+email address, is wider than the window, and a header that insisted on its full width pushed the
+sidebar out of it.
+
 The one-on-one shortcut deliberately stops at the first voice. Anybody can join a scheduled call
 uninvited, and handing that second voice the invited person's name would be a claim nothing supports
 — so it stays "Speaker 2". If the uninvited person happened to speak first and took the name,
