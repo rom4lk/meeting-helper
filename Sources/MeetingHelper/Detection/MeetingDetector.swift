@@ -268,9 +268,11 @@ final class MeetingDetector: ObservableObject {
     private var pollTimer: Timer?
     private var browserPositiveTicks = 0
     private var browserNegativeTicks = 0
+    private var zoomNegativeTicks = 0
 
     private let browserStartTicks = 2
     private let browserStopTicks = 3
+    private let zoomStopTicks = 3
     private var microphoneActivity = MicrophoneActivityTracker()
 
     func startWatching() {
@@ -294,7 +296,7 @@ final class MeetingDetector: ObservableObject {
     }
 
     private func poll() {
-        pollZoom()
+        pollZoom(isRunning: isZoomMeetingRunning)
         pollBrowsers()
         pollMicrophoneApps()
     }
@@ -317,6 +319,7 @@ final class MeetingDetector: ObservableObject {
         current = nil
         browserPositiveTicks = 0
         browserNegativeTicks = 0
+        zoomNegativeTicks = 0
         microphoneActivity.reset()
     }
 
@@ -521,12 +524,22 @@ final class MeetingDetector: ObservableObject {
         !NSRunningApplication.runningApplications(withBundleIdentifier: Self.zoomMeetingBundleID).isEmpty
     }
 
-    private func pollZoom() {
-        if isZoomMeetingRunning {
+    /// `CptHost` running is a start signal on its own — it appears only once the conference has
+    /// begun, so there is nothing to debounce on the way in.
+    ///
+    /// Its absence is debounced like the browser and microphone signals. The process is looked up
+    /// through `NSRunningApplication`, which answers from the Launch Services application list, and
+    /// that list has been seen coming back without a live `CptHost` for a single poll while the
+    /// system was rebuilding its database — enough to cut one meeting into two recordings.
+    func pollZoom(isRunning: Bool) {
+        if isRunning {
+            zoomNegativeTicks = 0
             guard current == nil else { return }
             begin(zoomMeeting())
         } else {
             guard current?.kind == .zoom else { return }
+            zoomNegativeTicks += 1
+            guard zoomNegativeTicks >= zoomStopTicks else { return }
             end()
         }
     }
@@ -669,6 +682,7 @@ final class MeetingDetector: ObservableObject {
         current = meeting
         browserPositiveTicks = 0
         browserNegativeTicks = 0
+        zoomNegativeTicks = 0
         if meeting.kind != .microphoneApp {
             microphoneActivity.reset()
         }
@@ -683,6 +697,7 @@ final class MeetingDetector: ObservableObject {
         current = nil
         browserPositiveTicks = 0
         browserNegativeTicks = 0
+        zoomNegativeTicks = 0
         microphoneActivity.reset()
         Log.detection.notice("Meeting ended")
         onStop?()

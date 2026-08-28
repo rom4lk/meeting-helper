@@ -39,6 +39,14 @@ which also occurs during dictation and audio checks.
 in `runningApplications`, but no lifecycle notifications arrive for them. A live test confirmed that
 leaving a conference produced a notification for `us.zoom.xos` but not for `us.zoom.CptHost`.
 
+The process appearing starts a recording on the first poll, because it appears only once the
+conference has begun. Its disappearance is debounced instead: `CptHost` must be absent for three
+consecutive polls before the recording stops. `runningApplications` answers from the Launch Services
+application list, and that list has been observed returning no `CptHost` for a single poll while the
+system was rebuilding its database, with the process itself alive on both sides of the gap. Without
+the debounce that one poll ended the meeting and started a second recording two seconds later,
+cutting one conference into two.
+
 Browser meetings do not have an equivalent helper process. Meeting Helper therefore requires both
 microphone activity and a window that one of the `BrowserMeetingService` entries claims. Without
 Accessibility access, browser meeting detection is unavailable, while Zoom detection continues to

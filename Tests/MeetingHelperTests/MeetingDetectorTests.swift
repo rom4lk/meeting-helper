@@ -110,4 +110,70 @@ final class MeetingDetectorTests: XCTestCase {
         XCTAssertTrue(meet.matches(pwaHost: "meet.google.com"))
         XCTAssertFalse(meet.matches(pwaHost: "mail.google.com"))
     }
+
+    // MARK: - Zoom debounce
+
+    func testZoomMeetingStartsOnTheFirstPollThatSeesTheHelperProcess() {
+        let detector = MeetingDetector()
+        var started = 0
+        detector.onStart = { _ in started += 1 }
+
+        detector.pollZoom(isRunning: true)
+
+        XCTAssertEqual(started, 1)
+        XCTAssertEqual(detector.current?.kind, .zoom)
+    }
+
+    /// The Launch Services application list has been seen coming back without a live `CptHost` for
+    /// a single poll, which used to end the recording and start a second one two seconds later.
+    func testZoomMeetingSurvivesTheHelperProcessGoingMissingForOnePoll() {
+        let detector = MeetingDetector()
+        var stopped = 0
+        var started = 0
+        detector.onStart = { _ in started += 1 }
+        detector.onStop = { stopped += 1 }
+
+        detector.pollZoom(isRunning: true)
+        detector.pollZoom(isRunning: false)
+        detector.pollZoom(isRunning: true)
+
+        XCTAssertEqual(stopped, 0)
+        XCTAssertEqual(started, 1)
+        XCTAssertEqual(detector.current?.kind, .zoom)
+    }
+
+    func testZoomMeetingEndsAfterThreeConsecutivePollsWithoutTheHelperProcess() {
+        let detector = MeetingDetector()
+        var stopped = 0
+        detector.onStop = { stopped += 1 }
+
+        detector.pollZoom(isRunning: true)
+        detector.pollZoom(isRunning: false)
+        detector.pollZoom(isRunning: false)
+        XCTAssertEqual(stopped, 0)
+
+        detector.pollZoom(isRunning: false)
+        XCTAssertEqual(stopped, 1)
+        XCTAssertNil(detector.current)
+    }
+
+    /// A meeting that came back after a missed poll must still get the full three checks the next
+    /// time the process disappears.
+    func testZoomAbsenceCountRestartsAfterTheHelperProcessComesBack() {
+        let detector = MeetingDetector()
+        var stopped = 0
+        detector.onStop = { stopped += 1 }
+
+        detector.pollZoom(isRunning: true)
+        detector.pollZoom(isRunning: false)
+        detector.pollZoom(isRunning: false)
+        detector.pollZoom(isRunning: true)
+
+        detector.pollZoom(isRunning: false)
+        detector.pollZoom(isRunning: false)
+        XCTAssertEqual(stopped, 0)
+
+        detector.pollZoom(isRunning: false)
+        XCTAssertEqual(stopped, 1)
+    }
 }
