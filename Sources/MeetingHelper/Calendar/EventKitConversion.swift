@@ -36,6 +36,7 @@ extension CalendarAttendee {
     /// else keys on, and a participant that carries none — a resource with an odd URL — is of no
     /// use for naming a voice later.
     init?(_ participant: EKParticipant, organizerEmail: String?) {
+        guard Self.isPerson(participant.participantType) else { return nil }
         guard let email = Self.emailAddress(inParticipantURL: participant.url) else { return nil }
 
         self.init(
@@ -45,6 +46,16 @@ extension CalendarAttendee {
             isSelf: participant.isCurrentUser,
             isOrganizer: organizerEmail?.caseInsensitiveCompare(email) == .orderedSame
         )
+    }
+
+    /// A booked room or a projector is invited the way a person is, answers the invitation, and
+    /// often has a mailbox of its own — but no voice will ever be theirs, so they are not part of
+    /// the roster the recording is named from.
+    static func isPerson(_ type: EKParticipantType) -> Bool {
+        switch type {
+        case .room, .resource: return false
+        default: return true
+        }
     }
 
     /// EventKit identifies a participant by URL, which for a person is `mailto:someone@example.com`.

@@ -391,7 +391,8 @@ round trip worth avoiding, and therefore no window that can go stale.
 All-day entries and cancelled events are dropped. An all-day entry spans every meeting of the day,
 so keeping them would put a birthday reminder in front of the real event. A participant EventKit
 identifies by something other than a `mailto:` URL is dropped too: the address is the identity
-everything else keys on. An unrecognized attendee response value decodes as "needs action" rather
+everything else keys on. So are rooms and equipment, which are invited and answer exactly as people
+do but will never own a voice in the recording. An unrecognized attendee response value decodes as "needs action" rather
 than failing the event, so a meeting cannot lose its whole roster over one field.
 
 ### Matching a recording to an event

@@ -32,6 +32,22 @@ final class EventKitConversionTests: XCTestCase {
         XCTAssertNil(CalendarAttendee.emailAddress(inParticipantURL: URL(string: "mailto:not-an-address")!))
     }
 
+    // MARK: - Rooms and equipment
+
+    /// A room answers its invitation like a person does, so nothing later in the pipeline could
+    /// tell it apart once it is in the roster.
+    func testARoomOrAPieceOfEquipmentIsNotAParticipant() {
+        XCTAssertFalse(CalendarAttendee.isPerson(.room))
+        XCTAssertFalse(CalendarAttendee.isPerson(.resource))
+    }
+
+    /// Servers that say nothing about what kind of participant this is still invite people.
+    func testEverybodyElseCounts() {
+        XCTAssertTrue(CalendarAttendee.isPerson(.person))
+        XCTAssertTrue(CalendarAttendee.isPerson(.group))
+        XCTAssertTrue(CalendarAttendee.isPerson(.unknown))
+    }
+
     // MARK: - Response status
 
     func testMapsTheAnswersAnInvitationCanCarry() {
