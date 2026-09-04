@@ -131,6 +131,16 @@ on the shared timeline. Automatically detected meetings use a Core Audio process
 (`AudioHardwareCreateProcessTap`, macOS 14.4+) scoped to the detected app, so unrelated audio is not
 included. Manual recordings use a global system audio tap and include all system output.
 
+A recording can leave the other participants out entirely and capture the microphone alone. The
+default for new recordings is **Settings > Recording**; the recording window and the floating panel
+both carry a switch that changes the recording in front of you without touching that default, so a
+call can be started one way and continued the other. While system audio is off no tap exists, which
+means nothing of the other participants is captured, recognized or written, and the recording needs
+no system audio permission. Switching it back on keeps writing into the track that is already open
+rather than starting a new one, so the pause is padded with silence the same way a device switch is
+and the system track stays a single file on the shared timeline. A recording that never captured
+anything is saved without `system.wav` at all.
+
 A tap scoped to an application that never plays reports no error of its own: Core Audio starts it and
 keeps it alive, the track keeps its bare header, and the meeting is saved without a system track. When
 a started tap has delivered nothing fifteen seconds later, the name of the tapped source is written to
@@ -283,9 +293,12 @@ leakage — the far end's last words, picked up before the reply starts — has 
 and keeps the rest. Level plays no part in the decision, so speech is kept however quiet it is.
 
 With headphones, without a system track, or before the delay has been measured, the gate does not
-fire. The recording window shows how many utterances it has compared and filtered. It can be
-disabled in **Settings > Transcription**, which removes the reference buffer and the wait of up to
-half a second for the system track to catch up. Thresholds and calibration measurements are
+fire. A microphone-only recording is one of those cases, and the recording window says so. Switching
+system audio off part-way through a call is the one costly variant: the reference buffer already
+holds samples, so every later utterance waits up to half a second for coverage that will not arrive
+before passing through unjudged. The recording window shows how many utterances it has compared and
+filtered. It can be disabled in **Settings > Transcription**, which removes the reference buffer and
+the wait of up to half a second for the system track to catch up. Thresholds and calibration measurements are
 documented in [echo-gate-calibration.md](../knowledge/echo-gate-calibration.md).
 
 ### Transcript deduplication

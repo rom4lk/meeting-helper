@@ -129,6 +129,12 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(transcriptDeduplicationEnabled, forKey: Keys.transcriptDeduplication) }
     }
     @Published var echoGateEnabled: Bool { didSet { defaults.set(echoGateEnabled, forKey: Keys.echoGate) } }
+    /// Whether a recording captures the other participants at all. Off records the microphone
+    /// alone. This is the default for new recordings; the switch on a running recording changes
+    /// that recording only and leaves this value alone.
+    @Published var recordSystemAudio: Bool {
+        didSet { defaults.set(recordSystemAudio, forKey: Keys.recordSystemAudio) }
+    }
     /// Whether the live transcript tells the voices on the system track apart. Costs two more
     /// on-device models and a speaker embedding per recognized phrase.
     @Published var speakerAttributionEnabled: Bool {
@@ -159,6 +165,7 @@ final class AppSettings: ObservableObject {
         static let realtimeTranscript = "realtimeTranscriptEnabled"
         static let transcriptDeduplication = "transcriptDeduplicationEnabled"
         static let echoGate = "echoGateEnabled"
+        static let recordSystemAudio = "recordSystemAudio"
         static let speakerAttribution = "speakerAttributionEnabled"
         static let showPanel = "showPanelOnStart"
         static let minimumRecordingDuration = "minimumRecordingDuration"
@@ -177,6 +184,7 @@ final class AppSettings: ObservableObject {
             Keys.realtimeTranscript: false,
             Keys.transcriptDeduplication: true,
             Keys.echoGate: true,
+            Keys.recordSystemAudio: true,
             Keys.speakerAttribution: true,
             Keys.showPanel: true,
             Keys.minimumRecordingDuration: 10,
@@ -199,6 +207,7 @@ final class AppSettings: ObservableObject {
         realtimeTranscriptEnabled = defaults.bool(forKey: Keys.realtimeTranscript)
         transcriptDeduplicationEnabled = defaults.bool(forKey: Keys.transcriptDeduplication)
         echoGateEnabled = defaults.bool(forKey: Keys.echoGate)
+        recordSystemAudio = defaults.bool(forKey: Keys.recordSystemAudio)
         speakerAttributionEnabled = defaults.bool(forKey: Keys.speakerAttribution)
         showPanelOnStart = defaults.bool(forKey: Keys.showPanel)
         let storedMinimumDuration = defaults.integer(forKey: Keys.minimumRecordingDuration)

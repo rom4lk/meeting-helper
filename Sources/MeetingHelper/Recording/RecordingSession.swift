@@ -7,6 +7,8 @@ final class RecordingSession: ObservableObject {
     enum TrackState: Equatable {
         case pending
         case capturing
+        /// Not being captured on purpose: this recording is microphone only.
+        case off
         case unavailable(String)
     }
 
@@ -30,6 +32,9 @@ final class RecordingSession: ObservableObject {
     @Published private(set) var microphoneDeviceName = "Unknown microphone"
     @Published private(set) var micState: TrackState = .pending
     @Published private(set) var systemState: TrackState = .pending
+    /// Whether this recording captures the other participants. Seeded from the setting and
+    /// switchable while the recording runs; the setting itself is left alone.
+    @Published private(set) var systemAudioEnabled: Bool
     @Published private(set) var transcriptionState: TranscriptionState = .disabled
     @Published private(set) var lines: [TranscriptLine] = []
     /// The tap is active, but no audible system audio has been detected yet. This can mean that
@@ -50,6 +55,9 @@ final class RecordingSession: ObservableObject {
     private var lastEchoDropAt: Date?
     private var systemPeak: Float = 0
     private var captureStartedAtUptime: TimeInterval = 0
+    /// When the system track was last switched on. The silence warning is counted from here, so
+    /// re-enabling capture mid-recording does not raise it immediately.
+    private var systemAudioStartedAt = Date()
 
     private let settings: AppSettings
     private let engine: TranscriptionEngine
@@ -104,6 +112,8 @@ final class RecordingSession: ObservableObject {
             ? SpeakerAttributor()
             : nil
         self.title = detected.title
+        self.systemAudioEnabled = settings.recordSystemAudio
+        self.systemState = settings.recordSystemAudio ? .pending : .off
     }
 
     /// Adopts a confidently matched calendar event, including its title and attendee list.
@@ -154,7 +164,10 @@ final class RecordingSession: ObservableObject {
         prepareSpeakerAttribution()
         startTranscription()
         startMicrophone()
-        startSystemAudio()
+        systemAudioStartedAt = startedAt
+        if systemAudioEnabled {
+            startSystemAudio()
+        }
 
         let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
@@ -219,6 +232,37 @@ final class RecordingSession: ObservableObject {
         )
     }
 
+    /// Starts or stops capturing the other participants while the recording runs.
+    ///
+    /// Only this recording is affected; the setting keeps its own value. Switching capture back on
+    /// reuses the track's writer, so the pause is padded with silence and the system track stays a
+    /// single file on the shared timeline.
+    func setSystemAudioEnabled(_ enabled: Bool) {
+        guard enabled != systemAudioEnabled, !isCaptureStopped else { return }
+
+        systemAudioEnabled = enabled
+        Log.audio.info("System audio capture \(enabled ? "enabled" : "disabled", privacy: .public)")
+
+        guard enabled else {
+            systemRetryTimer?.invalidate()
+            systemRetryTimer = nil
+            systemTap?.stop()
+            systemTap = nil
+            systemTapAttachedAt = nil
+            systemState = .off
+            systemSilent = false
+            return
+        }
+
+        systemRetriesLeft = 15
+        systemState = .pending
+        systemPeak = 0
+        systemSilent = false
+        systemAudioStartedAt = Date()
+        reportedEmptySystemTap = false
+        startSystemAudio()
+    }
+
     var sortedLines: [TranscriptLine] {
         lines.sorted { $0.offset < $1.offset }
     }
@@ -275,6 +319,10 @@ final class RecordingSession: ObservableObject {
     }
 
     private func startSystemAudio() {
+        // The retry below fires from a timer, so a switch flipped in between has to be honoured
+        // here rather than only at the call sites.
+        guard systemAudioEnabled else { return }
+
         // Core Audio only lists a process once it has touched audio, so right after a meeting
         // starts the conferencing app may not be there yet. Retry once a second for 15 seconds.
         guard attachSystemTap() else {
@@ -309,6 +357,10 @@ final class RecordingSession: ObservableObject {
         let reference = echoReference
         let url = MeetingLibrary.systemTrackURL(for: meetingID)
         let timelineStartUptime = captureStartedAtUptime
+        // Capture switched back on: keep writing into the track that is already open, so the
+        // recording keeps one system track and the writer pads the pause with silence. A new
+        // writer on the same URL would truncate what was recorded before the pause.
+        let existingWriter = systemWriter
 
         // Preparing and starting the tap wait on Core Audio with bounded sleeps that can add up
         // to over a second, so they run off the main thread — the interface must not freeze at
@@ -319,7 +371,7 @@ final class RecordingSession: ObservableObject {
                 guard let format = tap.format else {
                     throw CoreAudioError("System audio format unavailable")
                 }
-                let writer = try AudioTrackWriter(
+                let writer = try existingWriter ?? AudioTrackWriter(
                     url: url,
                     sourceFormat: format,
                     label: "system",
@@ -334,22 +386,43 @@ final class RecordingSession: ObservableObject {
                 return writer
             }
             Task { @MainActor in
-                self.finishSystemTapAttachment(tap, result: result)
+                self.finishSystemTapAttachment(
+                    tap,
+                    result: result,
+                    reusesWriter: existingWriter != nil
+                )
             }
         }
         return true
     }
 
     /// Lands the asynchronous tap attachment back on the session, or tears it down when the
-    /// recording stopped while the tap was still attaching.
+    /// recording stopped — or system audio was switched off — while the tap was still attaching.
     private func finishSystemTapAttachment(
         _ tap: SystemAudioTap,
-        result: Result<AudioTrackWriter, Error>
+        result: Result<AudioTrackWriter, Error>,
+        reusesWriter: Bool
     ) {
         switch result {
         case .success(let writer):
             guard !isCaptureStopped else {
                 tap.stop()
+                // A reused writer belongs to a track that already holds audio, and `stop()` is
+                // closing it and reading its length. Only a track this attachment opened itself
+                // is closed and removed here.
+                guard !reusesWriter else { return }
+                writer.finish()
+                try? FileManager.default.removeItem(at: MeetingLibrary.systemTrackURL(for: meetingID))
+                return
+            }
+            guard systemAudioEnabled else {
+                tap.stop()
+                // A reused writer is already this session's and stays open, so switching capture
+                // back on writes into it again. A track this attachment opened itself is thrown
+                // away instead, which also discards the sliver of audio the tap can deliver
+                // between starting and landing here — the recording was asked for no system audio
+                // at all.
+                guard !reusesWriter else { return }
                 writer.finish()
                 try? FileManager.default.removeItem(at: MeetingLibrary.systemTrackURL(for: meetingID))
                 return
@@ -360,7 +433,7 @@ final class RecordingSession: ObservableObject {
         case .failure(let error):
             Log.audio.error("System tap failed: \(error, privacy: .public)")
             tap.stop()
-            guard !isCaptureStopped else { return }
+            guard !isCaptureStopped, systemAudioEnabled else { return }
             systemState = .unavailable(error.localizedDescription)
         }
     }
@@ -505,7 +578,9 @@ final class RecordingSession: ObservableObject {
     private func tick() {
         elapsed = Date().timeIntervalSince(startedAt)
         micLevel = micWriter?.level ?? 0
-        systemLevel = systemWriter?.level ?? 0
+        // The writer keeps its last level after the tap detaches, so a switched-off track has to
+        // read as silent rather than freezing the meter at whatever was playing.
+        systemLevel = systemAudioEnabled ? (systemWriter?.level ?? 0) : 0
         refreshMicrophoneDeviceName()
 
         if systemState == .pending, systemTap?.hasDeliveredAudio == true {
@@ -520,7 +595,10 @@ final class RecordingSession: ObservableObject {
         } else {
             systemIsAvailable = true
         }
-        systemSilent = systemIsAvailable && elapsed > 20 && systemPeak < 0.0005
+        systemSilent = systemAudioEnabled
+            && systemIsAvailable
+            && Date().timeIntervalSince(systemAudioStartedAt) > 20
+            && systemPeak < 0.0005
 
         if let lastEchoDropAt, Date().timeIntervalSince(lastEchoDropAt) > 3 {
             echoGateFiring = false
@@ -533,6 +611,7 @@ final class RecordingSession: ObservableObject {
     /// anything, so record which source was tapped — it is the only clue after the fact.
     private func reportEmptySystemTapIfNeeded() {
         guard !reportedEmptySystemTap,
+              systemAudioEnabled,
               let systemTapAttachedAt,
               systemTap?.hasDeliveredAudio == false,
               Date().timeIntervalSince(systemTapAttachedAt) > Self.emptySystemTapReportDelay

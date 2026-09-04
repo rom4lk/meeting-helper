@@ -36,6 +36,12 @@ struct ActiveRecordingView: View {
                     .font(.title3.monospacedDigit())
                     .foregroundStyle(.secondary)
 
+                Button(session.systemAudioEnabled ? "Microphone only" : "Record system audio") {
+                    session.setSystemAudioEnabled(!session.systemAudioEnabled)
+                }
+                .disabled(controller.isStopping)
+                .help("Starts or stops capturing the other participants for this recording only. The default for new recordings is in Settings > Recording.")
+
                 Button(controller.settings.liveTranscriptShowsMySpeech ? "Hide my speech" : "Show my speech") {
                     controller.settings.liveTranscriptShowsMySpeech.toggle()
                 }
@@ -59,7 +65,11 @@ struct ActiveRecordingView: View {
 
             HStack(spacing: 20) {
                 Label("Microphone: \(session.microphoneDeviceName)", systemImage: "mic")
-                Label("Audio source: \(session.systemAudioSourceName)", systemImage: "speaker.wave.2")
+                if session.systemAudioEnabled {
+                    Label("Audio source: \(session.systemAudioSourceName)", systemImage: "speaker.wave.2")
+                } else {
+                    Label("Audio source: microphone only", systemImage: "speaker.slash")
+                }
                 if let model = session.transcriptionModel {
                     Label(
                         "Transcription: \(AppSettings.displayName(forModel: model))",
@@ -119,12 +129,15 @@ struct ActiveRecordingView: View {
     }
 
     private var echoGateIcon: String {
-        guard session.echoGateEnabled else { return "waveform.slash" }
+        guard session.echoGateEnabled, session.systemAudioEnabled else { return "waveform.slash" }
         return session.echoGateFiltered > 0 ? "waveform.badge.minus" : "waveform"
     }
 
     private var echoGateText: String {
         guard session.echoGateEnabled else { return "Echo gate: off" }
+        // Without a system track there is no playback to leak into the microphone, so the gate
+        // has nothing to compare against.
+        guard session.systemAudioEnabled else { return "Echo gate: idle, microphone only" }
         guard session.echoGateChecked > 0 else { return "Echo gate: standing by" }
         guard session.echoGateFiltered > 0 else {
             return "Echo gate: nothing to filter (\(session.echoGateChecked) checked)"

@@ -23,6 +23,9 @@ and stop recording automatically, and keep a live transcript visible while you w
   elsewhere the voices can be named from the recording window and are then recognized at their next
   meeting.
 - Process-scoped audio capture for detected meetings, plus manual recording of all system audio.
+- A recording can capture the microphone alone, leaving the other participants out. The default is
+  in Settings, and the switch is also on the recording window and the floating panel, so it can be
+  flipped at the start of a call or during one.
 - Saved recordings, playback, transcripts, timestamps, and meeting metadata. Playback jumps to
   any moment of a finished meeting: click a transcript line's speaker or timecode to hear it.
 - Recordings of one meeting that ended up saved separately can be merged into a single meeting.
@@ -207,7 +210,7 @@ and are read locally through EventKit, so nothing in the app talks to a network 
 | Permission | What for | Without it                                           |
 |---|---|------------------------------------------------------|
 | Microphone | own track | recording does not start                             |
-| System audio | the other participants' track | silence in the second track                          |
+| System audio | the other participants' track | silence in the second track; not needed for microphone-only recordings |
 | Accessibility | window titles | no meeting titles and no auto meeting detection      |
 | Calendars (optional) | event names and participants | recordings keep the window title and no participants |
 

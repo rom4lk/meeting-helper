@@ -50,7 +50,9 @@ struct FloatingTranscriptView: View {
                     .lineLimit(1)
 
                 if let session = controller.session {
-                    Text("Audio source: \(session.systemAudioSourceName)")
+                    Text(session.systemAudioEnabled
+                        ? "Audio source: \(session.systemAudioSourceName)"
+                        : "Audio source: microphone only")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -67,6 +69,7 @@ struct FloatingTranscriptView: View {
             }
 
             if let session = controller.session {
+                systemAudioToggle(for: session)
                 mySpeechToggle
 
                 Text(session.elapsed.clockString)
@@ -94,6 +97,23 @@ struct FloatingTranscriptView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    /// Starts or stops capturing the other participants, for this recording only.
+    private func systemAudioToggle(for session: RecordingSession) -> some View {
+        let enabled = session.systemAudioEnabled
+        return Button {
+            session.setSystemAudioEnabled(!enabled)
+        } label: {
+            Image(systemName: enabled ? "speaker.wave.2" : "speaker.slash")
+                .font(.system(size: 11))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(enabled ? Color.secondary : Color.orange)
+        .disabled(controller.isStopping)
+        .help(enabled
+            ? "Stop capturing the other participants for this recording"
+            : "Capture the other participants again")
     }
 
     /// Hides or shows the microphone lines without touching what is being recorded and saved.

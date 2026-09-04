@@ -17,6 +17,19 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(settings.observedMicrophoneApplications.isEmpty)
     }
 
+    func testSystemAudioRecordingIsOnByDefaultAndPersists() {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = AppSettings(defaults: defaults)
+        XCTAssertTrue(settings.recordSystemAudio)
+
+        settings.recordSystemAudio = false
+
+        XCTAssertFalse(AppSettings(defaults: defaults).recordSystemAudio)
+    }
+
     func testExcludedCalendarsPersist() {
         let suiteName = "AppSettingsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

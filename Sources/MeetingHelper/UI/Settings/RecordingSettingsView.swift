@@ -76,6 +76,20 @@ struct RecordingSettingsView: View {
             }
 
             Section {
+                Toggle(isOn: Binding(
+                    get: { controller.settings.recordSystemAudio },
+                    set: { controller.settings.recordSystemAudio = $0 }
+                )) {
+                    SettingRowLabel(
+                        title: "Record system audio",
+                        description: "Off records the microphone alone: the other participants are neither captured nor transcribed. This is the default for new recordings and can be changed during a call."
+                    )
+                }
+            } header: {
+                Label("Audio sources", systemImage: "speaker.wave.2")
+            }
+
+            Section {
                 Picker(selection: Binding(
                     get: { controller.settings.minimumRecordingDuration },
                     set: { controller.settings.minimumRecordingDuration = $0 }
