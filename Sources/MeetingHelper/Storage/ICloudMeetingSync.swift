@@ -70,6 +70,18 @@ final class ICloudMeetingSyncEngine: @unchecked Sendable {
         self.coordinatesRemoteAccess = coordinatesRemoteAccess
     }
 
+    /// Meeting ids present in a sync folder. Read at startup to tell an interrupted download
+    /// apart from a crashed local recording before orphaned directories are adopted.
+    static func remoteMeetingIDs(inSyncFolder folderURL: URL) -> Set<UUID> {
+        let meetingsRoot = folderURL.appendingPathComponent("Meetings", isDirectory: true)
+        let directories = (try? FileManager.default.contentsOfDirectory(
+            at: meetingsRoot,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return Set(directories.compactMap { UUID(uuidString: $0.lastPathComponent) })
+    }
+
     func recordDeletion(of meetingID: UUID) async throws {
         try await onQueue { _ in
             try self.fileManager.createDirectory(

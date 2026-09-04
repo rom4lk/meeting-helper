@@ -153,6 +153,16 @@ and written separately:
 When the app is asked to quit during a recording, it delays termination until capture has stopped,
 the transcription backlog has drained, and the meeting files have been finalized.
 
+If a recording never reaches that point — the app crashed, or saving the metadata failed with the
+audio already on disk, which is what a full disk looks like — the meeting directory is left without
+`meeting.json` and would normally be invisible forever. At the next launch such directories are
+adopted: the track lengths and file dates reconstruct the metadata, the missing mixdown is rebuilt
+in the background, and the meeting appears as "Recovered recording" with the kind shown as "Other".
+The in-memory transcript of the interrupted recording is gone, so a recovered meeting has audio but
+no transcript. A directory whose id also exists in the sync folder is deliberately left alone: it is
+more likely a download the synchronization has not finished than a lost recording, and
+reconciliation repairs it from the complete remote copy.
+
 ### Playback
 
 A saved meeting plays back from `mix.m4a`. Every transcript line carries its offset from the start
@@ -334,7 +344,10 @@ its short name, and copied transcript text includes it before the timestamped li
 by older versions do not have this field and omit the model.
 
 While a recording is active, utterances that arrive before its captured model is ready wait for that
-model load instead of being dropped. If the recording stops before the model becomes ready, that
+model load instead of being dropped. A model load that fails does not end transcription for the rest
+of the meeting either: the engine waits out a one-minute cooldown and tries again on the next
+utterance, so a download that died on a network hiccup costs a minute of transcript rather than the
+whole recording. If the recording stops before the model becomes ready, that
 pending transcription work is discarded so stopping does not wait for the download. The model can be
 downloaded in advance from **Settings > Transcription**. On later launches, the app loads the local
 files and prepares Core ML without contacting the model repository. The interface distinguishes

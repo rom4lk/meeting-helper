@@ -74,6 +74,9 @@ final class RecordingSession: ObservableObject {
     private var uiTimer: Timer?
     private var systemRetryTimer: Timer?
     private var systemRetriesLeft = 15
+    /// Set by `stop()`. The system tap attaches asynchronously, and an attachment that lands
+    /// after the recording stopped has to be torn down instead of installed.
+    private var isCaptureStopped = false
     /// When the tap attached, which can be seconds into the recording: the meeting app has to show
     /// up in Core Audio's process list first.
     private var systemTapAttachedAt: Date?
@@ -162,6 +165,7 @@ final class RecordingSession: ObservableObject {
 
     /// Stops every capture, finishes any ready transcription backlog and returns the saved meeting.
     func stop() async -> Meeting {
+        isCaptureStopped = true
         uiTimer?.invalidate()
         uiTimer = nil
         systemRetryTimer?.invalidate()
@@ -301,39 +305,63 @@ final class RecordingSession: ObservableObject {
         }
 
         let tap = SystemAudioTap(scope: scope)
-        do {
-            try tap.prepare()
+        let transcriber = systemTranscriber
+        let reference = echoReference
+        let url = MeetingLibrary.systemTrackURL(for: meetingID)
+        let timelineStartUptime = captureStartedAtUptime
 
-            guard let format = tap.format else {
-                systemState = .unavailable("System audio format unavailable")
-                return true
+        // Preparing and starting the tap wait on Core Audio with bounded sleeps that can add up
+        // to over a second, so they run off the main thread — the interface must not freeze at
+        // the start of every meeting.
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result: Result<AudioTrackWriter, Error> = Result {
+                try tap.prepare()
+                guard let format = tap.format else {
+                    throw CoreAudioError("System audio format unavailable")
+                }
+                let writer = try AudioTrackWriter(
+                    url: url,
+                    sourceFormat: format,
+                    label: "system",
+                    timelineStartUptime: timelineStartUptime
+                ) { samples in
+                    reference?.append(samples)
+                    transcriber?.feed(samples)
+                }
+                try tap.start { buffer in
+                    writer.append(buffer)
+                }
+                return writer
             }
+            Task { @MainActor in
+                self.finishSystemTapAttachment(tap, result: result)
+            }
+        }
+        return true
+    }
 
-            let transcriber = systemTranscriber
-            let reference = echoReference
-            let writer = try AudioTrackWriter(
-                url: MeetingLibrary.systemTrackURL(for: meetingID),
-                sourceFormat: format,
-                label: "system",
-                timelineStartUptime: captureStartedAtUptime
-            ) { samples in
-                reference?.append(samples)
-                transcriber?.feed(samples)
+    /// Lands the asynchronous tap attachment back on the session, or tears it down when the
+    /// recording stopped while the tap was still attaching.
+    private func finishSystemTapAttachment(
+        _ tap: SystemAudioTap,
+        result: Result<AudioTrackWriter, Error>
+    ) {
+        switch result {
+        case .success(let writer):
+            guard !isCaptureStopped else {
+                tap.stop()
+                writer.finish()
+                try? FileManager.default.removeItem(at: MeetingLibrary.systemTrackURL(for: meetingID))
+                return
             }
             systemWriter = writer
-
-            try tap.start { buffer in
-                writer.append(buffer)
-            }
-
             systemTap = tap
             systemTapAttachedAt = Date()
-            return true
-        } catch {
+        case .failure(let error):
             Log.audio.error("System tap failed: \(error, privacy: .public)")
             tap.stop()
+            guard !isCaptureStopped else { return }
             systemState = .unavailable(error.localizedDescription)
-            return true
         }
     }
 
@@ -424,6 +452,7 @@ final class RecordingSession: ObservableObject {
     private func receive(_ update: SourceTranscriptionUpdate) {
         switch update {
         case .preview(let line):
+            noteRecognitionRecovered()
             previewLineIDs.insert(line.id)
             if let index = lines.firstIndex(where: { $0.id == line.id }) {
                 lines[index] = line
@@ -431,6 +460,7 @@ final class RecordingSession: ObservableObject {
                 lines.append(line)
             }
         case .final(let line):
+            noteRecognitionRecovered()
             previewLineIDs.remove(line.id)
             lines.removeAll { $0.id == line.id }
             if transcriptDeduplicationEnabled {
@@ -441,6 +471,15 @@ final class RecordingSession: ObservableObject {
         case .removePreview(let id):
             previewLineIDs.remove(id)
             lines.removeAll { $0.id == id }
+        }
+    }
+
+    /// A line can arrive while the state still says `failed`: the engine retries a failed model
+    /// load on a cooldown, and seeing output is the only report that the retry succeeded. The
+    /// state has to say `running` again so stopping waits for the transcription backlog.
+    private func noteRecognitionRecovered() {
+        if case .failed = transcriptionState {
+            transcriptionState = .running
         }
     }
 

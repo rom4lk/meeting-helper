@@ -78,7 +78,12 @@ actor TranscriptionEngine: SpeechTranscribing {
     private var loadedModel: String?
     private var loadTask: Task<Void, Error>?
     private var loadingModel: String?
-    private var failedModel: String?
+    /// The model whose last load failed, and when transcription may try loading it again.
+    /// One failed load must not silence the rest of a recording — a download that died on a
+    /// network hiccup can succeed a minute later — but retrying on every utterance would
+    /// hammer whatever is broken, so the retry waits out a cooldown.
+    private var failedLoad: (model: String, retryAfter: Date)?
+    private static let failedLoadRetryDelay: TimeInterval = 60
     private var loadGeneration = 0
     private var preparationStage: ModelPreparationStage?
     private var preparationObservers: [UUID: (model: String, callback: @Sendable (ModelPreparationStage) -> Void)] = [:]
@@ -183,7 +188,7 @@ actor TranscriptionEngine: SpeechTranscribing {
                 if loadingModel == model {
                     state = .ready
                     loadedModel = model
-                    failedModel = nil
+                    failedLoad = nil
                     self.loadTask = nil
                     loadingModel = nil
                     preparationStage = nil
@@ -193,8 +198,8 @@ actor TranscriptionEngine: SpeechTranscribing {
         }
         if case .ready = state, hasLoadedModel(model), loadedModel == model { return }
 
-        if failedModel == model {
-            failedModel = nil
+        if failedLoad?.model == model {
+            failedLoad = nil
         }
         state = .loading
         loadingModel = model
@@ -251,8 +256,8 @@ actor TranscriptionEngine: SpeechTranscribing {
             guard generation == loadGeneration else { return }
             state = .ready
             loadedModel = model
-            if failedModel == model {
-                failedModel = nil
+            if failedLoad?.model == model {
+                failedLoad = nil
             }
             loadTask = nil
             loadingModel = nil
@@ -263,7 +268,7 @@ actor TranscriptionEngine: SpeechTranscribing {
             loadTask = nil
             loadingModel = nil
             preparationStage = nil
-            failedModel = model
+            failedLoad = (model: model, retryAfter: Date().addingTimeInterval(Self.failedLoadRetryDelay))
             if let loadedModel, hasLoadedModel(loadedModel) {
                 // The switch failed but the earlier model is untouched, so recognition keeps working.
                 state = .ready
@@ -297,7 +302,11 @@ actor TranscriptionEngine: SpeechTranscribing {
         // Audio starts flowing before the model finishes loading. Prepare the model captured by the
         // recording rather than using whichever backend happens to be resident at this instant.
         if loadedModel != model || !hasLoadedModel(model) {
-            guard failedModel != model else { return nil }
+            if let failedLoad, failedLoad.model == model {
+                // Recognition coming back a minute late is far better than a whole meeting
+                // without a transcript, so a failed load blocks only until its cooldown ends.
+                guard Date() >= failedLoad.retryAfter else { return nil }
+            }
             do {
                 try await prepare(model: model)
             } catch {

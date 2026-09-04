@@ -114,6 +114,12 @@ final class AppController: ObservableObject {
         refreshPermissions()
         refreshModelState()
         preloadInstalledModel()
+        // Adopt recordings whose audio reached the disk without metadata — a crash, or a save
+        // that failed. Directories that may be half-downloaded sync copies stay untouched;
+        // reconciliation repairs those from the complete remote side.
+        let possibleSyncDownloads = settings.iCloudSyncFolderURL
+            .map(ICloudMeetingSyncEngine.remoteMeetingIDs(inSyncFolder:)) ?? []
+        store.recoverOrphanedRecordings(excluding: possibleSyncDownloads)
         iCloudSync.update(
             limit: settings.iCloudSyncLimit,
             folderURL: settings.iCloudSyncFolderURL
