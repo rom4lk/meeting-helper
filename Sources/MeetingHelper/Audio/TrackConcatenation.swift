@@ -60,7 +60,14 @@ enum TrackConcatenation {
         for (source, span) in zip(sources, spans) {
             var written: AVAudioFramePosition = 0
 
-            if let source, let input = try? AVAudioFile(forReading: source), input.length > 0 {
+            // A source that is named but cannot be opened is an error, not silence: padding over
+            // it would produce a joined track that quietly lost one recording's audio.
+            if let source {
+                guard let input = try? AVAudioFile(forReading: source) else {
+                    throw Failure(
+                        reason: "\(source.lastPathComponent) is missing or cannot be read."
+                    )
+                }
                 guard input.processingFormat.sampleRate == AudioTrackWriter.sampleRate else {
                     throw Failure(
                         reason: "\(source.lastPathComponent) is not a 16 kHz recording."

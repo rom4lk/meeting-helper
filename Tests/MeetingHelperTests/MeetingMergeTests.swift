@@ -253,6 +253,21 @@ final class MeetingMergeTests: XCTestCase {
         )
     }
 
+    /// The audio of one recording used to be replaced by silence when its file had gone missing,
+    /// and the merge still succeeded because the other recording covered the total duration. With
+    /// the originals deleted afterwards, that lost the only remaining copy.
+    func testRefusesARecordingWhoseDeclaredTrackIsGone() throws {
+        let damaged = try makeRecording(startedAt: .distantPast, micSeconds: 4, systemSeconds: nil)
+        let intact = try makeRecording(startedAt: Date(), micSeconds: 4, systemSeconds: nil)
+        try FileManager.default.removeItem(
+            at: MeetingLibrary.micTrackURL(for: damaged.id, in: root)
+        )
+
+        XCTAssertThrowsError(
+            try MeetingMerge.plan(merging: [damaged, intact], title: "Joined", in: root)
+        )
+    }
+
     func testRefusesRecordingsWithoutAnyAudio() throws {
         let first = try makeRecording(startedAt: .distantPast, micSeconds: nil, systemSeconds: nil)
         let second = try makeRecording(startedAt: Date(), micSeconds: nil, systemSeconds: nil)

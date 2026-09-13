@@ -117,7 +117,10 @@ Subdomains match the configured host, which is what covers a Ktalk instance of a
 organization.
 
 Stopping a recording drains the transcription backlog and writes the mixdown, which can take a
-minute on a long meeting. A meeting detected in that window is remembered and started once the
+minute on a long meeting. The saved duration is read before that drain starts: capture has already
+ended by then, and counting the wait would save a meeting as longer than its own audio — and with
+it mislead the minimum length a recording needs to be kept and the confirmation a long one asks for
+before it is deleted. A meeting detected in that window is remembered and started once the
 previous session is gone. Dropping it instead would lose it for good: the detector has already
 recorded it as the current meeting and never reports the same start twice. The remembered meeting is
 started only if the detector still reports it as running, so a short call that begins and ends inside
@@ -138,8 +141,11 @@ call can be started one way and continued the other. While system audio is off n
 means nothing of the other participants is captured, recognized or written, and the recording needs
 no system audio permission. Switching it back on keeps writing into the track that is already open
 rather than starting a new one, so the pause is padded with silence the same way a device switch is
-and the system track stays a single file on the shared timeline. A recording that never captured
-anything is saved without `system.wav` at all.
+and the system track stays a single file on the shared timeline. Attaching a tap takes Core Audio a
+moment, so flipping the switch twice in quick succession can find the previous attempt still
+running: attempts are numbered and run one at a time, and one the switch has already superseded is
+torn down when it lands instead of installing a second writer on the same track. A recording that
+never captured anything is saved without `system.wav` at all.
 
 A tap scoped to an application that never plays reports no error of its own: Core Audio starts it and
 keeps it alive, the track keeps its bare header, and the meeting is saved without a system track. When
@@ -199,7 +205,10 @@ fill it before the next recording is appended. `Meeting.duration` is not used fo
 counts the wall clock and is almost always longer than either track. Because both tracks of a
 segment end up the same length, one shift moves that segment's whole transcript onto the merged
 timeline, `Me` and `Others` alike. A recording with no track of a kind contributes silence for its
-whole span, which keeps the other track from sliding forward.
+whole span, which keeps the other track from sliding forward. A track the recording *does* declare
+but the disk cannot produce is a different matter and stops the merge with an error naming the
+recording: padding over it would produce a result that looks complete, and deleting the originals
+afterwards would take the last readable copy of that audio with them.
 
 Recordings are joined back to back with no gap: the time between two recordings is dropped, so a
 merged meeting's `duration` no longer matches the wall-clock interval it covers. When the recordings
@@ -334,8 +343,10 @@ are stored under:
 
 Parakeet uses FluidAudio's model cache under `~/Library/Application Support/FluidAudio/Models`.
 Both backends process complete audio buffers, so an energy-based VAD with an adaptive threshold
-divides each track into utterances. An utterance closes after 0.8 seconds of silence or is forced
-closed after 25 seconds. Each track has its own transcriber, and both use a shared actor that owns
+divides each track into utterances. The threshold follows a noise floor learned from the frames the
+detector reads as silence; speech is left out of it, or a long utterance would raise the floor above
+the speaker's own voice and the rest of what they said would be read as silence. An utterance closes
+after 0.8 seconds of silence or is forced closed after 25 seconds. Each track has its own transcriber, and both use a shared actor that owns
 the selected model.
 
 Recognized text passes two whole-phrase filters before it becomes a line. One drops the stock

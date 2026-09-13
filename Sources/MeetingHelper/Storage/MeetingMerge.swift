@@ -16,6 +16,7 @@ enum MeetingMerge {
         case duplicateMeetings
         case emptySources
         case missingDirectory(UUID)
+        case unreadableTrack(UUID, track: String)
         case notEnoughDiskSpace(required: Int64)
 
         var errorDescription: String? {
@@ -28,6 +29,11 @@ enum MeetingMerge {
                 return "The selected recordings hold no audio."
             case .missingDirectory(let id):
                 return "The recording \(id.uuidString) is no longer in the library."
+            case .unreadableTrack(let id, let track):
+                return """
+                    The \(track) audio of recording \(id.uuidString) is missing or unreadable, \
+                    so merging would silently drop it.
+                    """
             case .notEnoughDiskSpace(let required):
                 let size = ByteCountFormatter.string(fromByteCount: required, countStyle: .file)
                 return "Merging needs about \(size) of free disk space."
@@ -97,6 +103,17 @@ enum MeetingMerge {
             let systemURL = MeetingLibrary.systemTrackURL(for: meeting.id, in: root)
             let micFrames = TrackConcatenation.frameCount(at: micURL)
             let systemFrames = TrackConcatenation.frameCount(at: systemURL)
+
+            // A track the recording says it has but the disk cannot produce would be padded with
+            // silence for its whole span, and the merge would look like it worked. That is worth
+            // refusing: with the originals deleted afterwards, their mixdown goes with them, and
+            // the audio would be gone for good.
+            if meeting.hasMicTrack, micFrames <= 0 {
+                throw Failure.unreadableTrack(meeting.id, track: "microphone")
+            }
+            if meeting.hasSystemTrack, systemFrames <= 0 {
+                throw Failure.unreadableTrack(meeting.id, track: "system")
+            }
 
             segments.append(PlannedSegment(
                 meeting: meeting,

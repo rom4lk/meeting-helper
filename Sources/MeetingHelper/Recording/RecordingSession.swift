@@ -89,6 +89,15 @@ final class RecordingSession: ObservableObject {
     /// up in Core Audio's process list first.
     private var systemTapAttachedAt: Date?
     private var reportedEmptySystemTap = false
+    /// Attachment attempts are numbered and run one at a time. Switching system audio off and back
+    /// on while one is still running would otherwise leave two attachments racing for the same
+    /// track: both would find capture enabled when they land, and both could open their own writer
+    /// on `system.wav`, truncating it and splitting the stream the transcriber reads.
+    private var systemAttachmentGeneration = 0
+    private var systemAttachmentInFlight = false
+    /// Set when capture is switched on while an attachment from an earlier switch is still
+    /// running. The one that lands starts the fresh attachment, so the request is not lost.
+    private var systemAttachmentPending = false
 
     /// How long a started tap may stay empty before it is written to the log. A tap on an app that
     /// is playing delivers buffers immediately, silent ones included.
@@ -191,6 +200,12 @@ final class RecordingSession: ObservableObject {
         micWriter?.finish()
         systemWriter?.finish()
 
+        // Read before the transcription backlog is drained: capture has already stopped, and
+        // draining can take minutes on a long meeting. Counting that as recorded time would save
+        // a duration the audio does not have, and with it mislead the minimum-length filter and
+        // the confirmation a long recording asks for before it is deleted.
+        let stoppedAt = Date()
+
         let waitForTranscription = transcriptionState == .running
         await micTranscriber?.finish(waitForTranscription: waitForTranscription)
         await systemTranscriber?.finish(waitForTranscription: waitForTranscription)
@@ -200,7 +215,7 @@ final class RecordingSession: ObservableObject {
 
         let micDuration = micWriter?.duration ?? 0
         let systemDuration = systemWriter?.duration ?? 0
-        let duration = max(micDuration, systemDuration, Date().timeIntervalSince(startedAt))
+        let duration = max(micDuration, systemDuration, stoppedAt.timeIntervalSince(startedAt))
 
         let hasMic = micDuration > 0
         let hasSystem = systemDuration > 0
@@ -246,6 +261,10 @@ final class RecordingSession: ObservableObject {
         guard enabled else {
             systemRetryTimer?.invalidate()
             systemRetryTimer = nil
+            // An attachment that is still running was asked for by the capture being switched off
+            // here, so its result must not install itself when it lands.
+            systemAttachmentGeneration += 1
+            systemAttachmentPending = false
             systemTap?.stop()
             systemTap = nil
             systemTapAttachedAt = nil
@@ -341,6 +360,14 @@ final class RecordingSession: ObservableObject {
     }
 
     private func attachSystemTap() -> Bool {
+        // One attachment at a time. The one in flight picks this request up when it lands, which
+        // is also what keeps a superseded attachment from being replaced before it has torn itself
+        // down.
+        guard !systemAttachmentInFlight else {
+            systemAttachmentPending = true
+            return true
+        }
+
         let scope: SystemAudioTap.Scope
         if detected.capturesAllSystemAudio {
             let ownBundleID = Bundle.main.bundleIdentifier ?? "com.kovalev.MeetingHelper"
@@ -361,6 +388,10 @@ final class RecordingSession: ObservableObject {
         // recording keeps one system track and the writer pads the pause with silence. A new
         // writer on the same URL would truncate what was recorded before the pause.
         let existingWriter = systemWriter
+
+        systemAttachmentGeneration += 1
+        systemAttachmentInFlight = true
+        let generation = systemAttachmentGeneration
 
         // Preparing and starting the tap wait on Core Audio with bounded sleeps that can add up
         // to over a second, so they run off the main thread — the interface must not freeze at
@@ -388,6 +419,7 @@ final class RecordingSession: ObservableObject {
             Task { @MainActor in
                 self.finishSystemTapAttachment(
                     tap,
+                    generation: generation,
                     result: result,
                     reusesWriter: existingWriter != nil
                 )
@@ -400,28 +432,28 @@ final class RecordingSession: ObservableObject {
     /// recording stopped — or system audio was switched off — while the tap was still attaching.
     private func finishSystemTapAttachment(
         _ tap: SystemAudioTap,
+        generation: Int,
         result: Result<AudioTrackWriter, Error>,
         reusesWriter: Bool
     ) {
+        systemAttachmentInFlight = false
+        defer { resumeSystemAudioIfRequested() }
+
+        // Stale once the recording stopped, once capture was switched off, or once a later switch
+        // superseded this attempt. In all three the tap is torn down instead of installed.
+        let isStale = generation != systemAttachmentGeneration
+            || isCaptureStopped
+            || !systemAudioEnabled
+
         switch result {
         case .success(let writer):
-            guard !isCaptureStopped else {
+            guard !isStale else {
                 tap.stop()
-                // A reused writer belongs to a track that already holds audio, and `stop()` is
-                // closing it and reading its length. Only a track this attachment opened itself
-                // is closed and removed here.
-                guard !reusesWriter else { return }
-                writer.finish()
-                try? FileManager.default.removeItem(at: MeetingLibrary.systemTrackURL(for: meetingID))
-                return
-            }
-            guard systemAudioEnabled else {
-                tap.stop()
-                // A reused writer is already this session's and stays open, so switching capture
-                // back on writes into it again. A track this attachment opened itself is thrown
-                // away instead, which also discards the sliver of audio the tap can deliver
-                // between starting and landing here — the recording was asked for no system audio
-                // at all.
+                // A reused writer belongs to a track that already holds audio and stays open: it
+                // is this session's, `stop()` is closing it and reading its length, and switching
+                // capture back on writes into it again. Only a track this attachment opened itself
+                // is closed and removed here, which also discards the sliver of audio the tap can
+                // deliver between starting and landing.
                 guard !reusesWriter else { return }
                 writer.finish()
                 try? FileManager.default.removeItem(at: MeetingLibrary.systemTrackURL(for: meetingID))
@@ -433,9 +465,18 @@ final class RecordingSession: ObservableObject {
         case .failure(let error):
             Log.audio.error("System tap failed: \(error, privacy: .public)")
             tap.stop()
-            guard !isCaptureStopped, systemAudioEnabled else { return }
+            guard !isStale else { return }
             systemState = .unavailable(error.localizedDescription)
         }
+    }
+
+    /// Starts the attachment that was asked for while another one was still running. Nothing to do
+    /// when that attachment installed itself: it is the capture the switch asked for.
+    private func resumeSystemAudioIfRequested() {
+        guard systemAttachmentPending else { return }
+        systemAttachmentPending = false
+        guard !isCaptureStopped, systemAudioEnabled, systemTap == nil else { return }
+        startSystemAudio()
     }
 
     private func startTranscription() {

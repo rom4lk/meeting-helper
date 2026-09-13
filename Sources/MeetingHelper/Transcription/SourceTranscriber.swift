@@ -188,15 +188,18 @@ final class SourceTranscriber: @unchecked Sendable {
         framesSeen += 1
 
         let energy = rootMeanSquare(frame)
-        // Track the quietest recent level as the noise floor so the threshold follows the room.
-        if energy < noiseFloor {
-            noiseFloor = noiseFloor * 0.9 + energy * 0.1
-        } else {
-            noiseFloor = noiseFloor * 0.995 + energy * 0.005
-        }
-
         let threshold = max(Constants.absoluteThreshold, noiseFloor * Constants.noiseMultiplier)
         let isSpeech = energy > threshold
+
+        // Track the quietest recent level as the noise floor so the threshold follows the room.
+        // Frames loud enough to be speech are left out of the estimate: a sustained utterance
+        // would otherwise raise the floor until the threshold sat above the speaker's own voice,
+        // and the rest of what they said would be read as silence and dropped.
+        if energy < noiseFloor {
+            noiseFloor = noiseFloor * 0.9 + energy * 0.1
+        } else if !isSpeech {
+            noiseFloor = noiseFloor * 0.995 + energy * 0.005
+        }
 
         if inUtterance {
             pending.append(contentsOf: frame)

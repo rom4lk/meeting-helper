@@ -130,6 +130,33 @@ final class SourceTranscriberTests: XCTestCase {
         XCTAssertEqual(calls.counts, [48 * SourceTranscriber.frameSize])
     }
 
+    /// The noise floor used to be learned from speech as well, so a long utterance raised the
+    /// threshold above the speaker's own level and everything after that was read as silence.
+    func testASustainedUtteranceReachesRecognitionWhole() async {
+        let recognized = expectation(description: "Final result")
+        let calls = RecognitionCalls()
+        // 20 s of speech that keeps changing level the way a voice does, then the pause that
+        // closes the utterance.
+        let speech = (0..<200).flatMap { frame -> [Float] in
+            let level: Float = frame.isMultiple(of: 2) ? 0.08 : 0.12
+            return [Float](repeating: level, count: SourceTranscriber.frameSize)
+        }
+        let silence = [Float](repeating: 0, count: 8 * SourceTranscriber.frameSize)
+
+        let transcriber = makeTranscriber(
+            source: .others,
+            language: "en",
+            transcribe: { samples, _ in calls.response(for: samples) },
+            onLine: { _ in recognized.fulfill() }
+        )
+
+        transcriber.feed(speech + silence)
+        await transcriber.finish(waitForTranscription: true)
+        await fulfillment(of: [recognized], timeout: 5)
+
+        XCTAssertEqual(calls.counts, [208 * SourceTranscriber.frameSize])
+    }
+
     func testFinishDoesNotWaitForTranscriptionWhenRecognitionIsNotReady() async {
         let transcriptionStarted = expectation(description: "Transcription started")
         let transcriber = makeTranscriber(
